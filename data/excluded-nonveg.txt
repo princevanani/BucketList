@@ -1,0 +1,31 @@
+Items left out of the starter list because they are not vegetarian or contain egg.
+Add any back from inside the app if you want them.
+
+[India] Eat Delhi's butter chicken at Moti Mahal
+[India] Eat kebabs at Karim's
+[India] Eat Tunday kebab in Lucknow
+[India] Eat Lucknowi biryani
+[India] Eat Lucknow's nihari kulcha
+[India] Eat a Kashmiri Wazwan
+[India] Eat Bombay duck at a Koliwada
+[India] Eat Goan fish curry and prawn balchão
+[India] Eat bebinca
+[India] Eat pork vindaloo or sorpotel
+[India] Eat Kolkata biryani and kathi rolls
+[India] Eat hilsa
+[India] Eat Hyderabadi dum biryani and haleem
+[India] Eat Malabar biryani
+[India] Eat Kerala fish curry in toddy shops
+[The World] Eat chicken rice at a Singapore hawker centre
+[The World] Eat chilli crab in Singapore
+[The World] Eat sushi at a Tokyo counter
+[The World] Eat Peking duck in Beijing
+[The World] Eat a steak in Argentina
+[Food and drink] Eat sushi in Tokyo
+[Food and drink] Eat a proper Kolkata biryani
+[Food and drink] Eat Hyderabadi biryani in Hyderabad
+[Food and drink] Eat Lucknow's tunday kebab
+[Food and drink] Eat Goan fish curry rice
+[Food and drink] Eat Kashmiri wazwan
+[Food and drink] Try insects as food, once
+[Food and drink] Eat Dutch stroopwafels
