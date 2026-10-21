@@ -2,6 +2,7 @@ import { app, catById, go, refreshCats } from '../state.js';
 import { h, icon, toast, today, fmtDate, stars, debounce, confirmDialog } from '../util.js';
 import { prepareFile } from '../media.js';
 import { deleteItem } from '../actions.js';
+import { resolvePlace } from '../locate-ui.js';
 import { openStory } from './story.js';
 
 const MOODS = ['😍', '🤩', '😊', '😌', '🥹', '😅', '😴', '😬', '😢', '🙏'];
@@ -11,7 +12,7 @@ export async function render(main, route) {
   const it = await app.db.items.get(route.id);
   if (!it) {
     document.title = 'Not found · Before I die';
-    main.append(h('div', { class: 'dark-empty' }, h('h2', { style: { fontSize: '2rem' } }, 'No such item'), h('p', {}, 'It may be private or deleted.'), h('a', { class: 'btn', href: '#/' }, 'Back to contents')));
+    main.append(h('div', { class: 'dark-empty' }, h('h2', { style: { fontSize: '2rem' } }, 'No such item'), h('p', {}, 'It may be private or deleted.'), h('a', { class: 'btn', href: '#/notebook' }, 'Back to contents')));
     return;
   }
   document.title = `${it.title} · Before I die`;
@@ -51,7 +52,7 @@ export async function render(main, route) {
   };
 
   main.append(
-    h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumb' }, h('a', { href: '#/' }, 'Before I die'), ' / ', h('a', { href: `#/c/${cat.slug}` }, cat.title), ' / ', it.section)
+    h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumb' }, h('a', { href: '#/notebook' }, 'Notebook'), ' / ', h('a', { href: `#/c/${cat.slug}` }, cat.title), ' / ', it.section)
   );
 
   // ---- journal
@@ -100,14 +101,45 @@ export async function render(main, route) {
   if (owner) {
     // place + rating
     const place = h('input', { class: 'line-in', type: 'text', value: it.place || '', placeholder: 'Where did it happen?', id: 'f-place' });
-    place.addEventListener('input', () => set('place', place.value));
+    const pin = h('small', { class: 'field-hint pin-note' });
+    const showPin = () => {
+      pin.replaceChildren();
+      if (typeof it.lat === 'number' && typeof it.lng === 'number') pin.append(icon('gate', 13), ` On the globe at ${it.lat.toFixed(2)}, ${it.lng.toFixed(2)} `, h('a', { href: '#/' }, 'See it'));
+      else if (place.value.trim()) pin.textContent = 'Not on the globe yet. Try a city or country, or "lat, lng".';
+    };
+    let pinGen = 0;
+    const locatePlace = debounce(async () => {
+      const my = ++pinGen;
+      const text = place.value.trim();
+      if (!text) {
+        set('lat', null);
+        set('lng', null);
+        return showPin();
+      }
+      pin.textContent = 'Looking for it on the map…';
+      const r = await resolvePlace(text);
+      if (my !== pinGen) return;
+      if (r) {
+        set('lat', r.lat);
+        set('lng', r.lng);
+      } else {
+        set('lat', null);
+        set('lng', null);
+      }
+      showPin();
+    }, 900);
+    place.addEventListener('input', () => {
+      set('place', place.value);
+      locatePlace();
+    });
+    showPin();
     const ratingBox = h('div');
     const drawRating = () => {
       ratingBox.innerHTML = '';
       ratingBox.append(stars(it.rating || 0, { onPick: (n) => { set('rating', n || null); drawRating(); } }));
     };
     drawRating();
-    journal.append(h('div', { class: 'two' }, h('div', { class: 'fld' }, h('label', { for: 'f-place' }, 'Where'), place), h('div', { class: 'fld' }, h('span', { class: 'lab' }, 'How good was it'), ratingBox)));
+    journal.append(h('div', { class: 'two' }, h('div', { class: 'fld' }, h('label', { for: 'f-place' }, 'Where'), place, pin), h('div', { class: 'fld' }, h('span', { class: 'lab' }, 'How good was it'), ratingBox)));
 
     // mood
     const moodBox = h('div', { class: 'moods', role: 'group', 'aria-label': 'Mood' });

@@ -10,7 +10,7 @@ export async function render(main, route) {
   const cat = catBySlug(route.slug);
   if (!cat) {
     document.title = 'Not found · Before I die';
-    main.append(h('div', { class: 'dark-empty' }, h('h2', { style: { fontSize: '2rem' } }, 'No such chapter'), h('p', {}, 'It may be private, renamed or deleted.'), h('a', { class: 'btn', href: '#/' }, 'Back to contents')));
+    main.append(h('div', { class: 'dark-empty' }, h('h2', { style: { fontSize: '2rem' } }, 'No such chapter'), h('p', {}, 'It may be private, renamed or deleted.'), h('a', { class: 'btn', href: '#/notebook' }, 'Back to contents')));
     return;
   }
   document.title = `${cat.title} · Before I die`;
@@ -30,7 +30,7 @@ export async function render(main, route) {
   };
   drawStat();
   main.append(
-    h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumb' }, h('a', { href: '#/' }, 'Before I die'), ' / ', cat.title),
+    h('nav', { class: 'crumbs', 'aria-label': 'Breadcrumb' }, h('a', { href: '#/notebook' }, 'Notebook'), ' / ', cat.title),
     h(
       'header',
       { class: 'chapter-head' },
@@ -44,7 +44,7 @@ export async function render(main, route) {
         h('button', { class: 'btn btn-primary', type: 'button', onclick: () => openStory({ scope: 'category', catId: cat.id }) }, icon('book', 18), 'View Bucket'),
         owner ? h('button', { class: 'btn', type: 'button', onclick: addItemDialog }, icon('plus', 16), 'Add item') : null,
         owner ? h('button', { class: 'btn', type: 'button', onclick: async () => { if (await editCategory(cat)) app.rerender(); } }, icon('pencil', 16), 'Edit chapter') : null,
-        owner ? h('button', { class: 'btn', type: 'button', onclick: async () => { if (await deleteCategory(cat)) go('#/'); } }, icon('trash', 16), 'Delete chapter') : null,
+        owner ? h('button', { class: 'btn', type: 'button', onclick: async () => { if (await deleteCategory(cat)) go('#/notebook'); } }, icon('trash', 16), 'Delete chapter') : null,
         cat.is_private ? h('span', { class: 'private-note' }, icon('lock', 16), 'Private: only you can see this chapter') : null
       )
     )

@@ -273,3 +273,9 @@ export function stars(value, { onPick } = {}) {
   }
   return wrap;
 }
+
+// Replace an element's children, ignoring null/false entries (replaceChildren would print them as text).
+export function fill(el, ...kids) {
+  el.replaceChildren(...kids.flat(Infinity).filter((k) => k != null && k !== false));
+  return el;
+}

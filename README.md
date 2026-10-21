@@ -20,6 +20,9 @@ With `config.js` empty, everything is saved inside your browser only. Click **Lo
 2. Open `supabase/schema.sql`, change `you@example.com` to **your own email**, copy the whole file.
 3. Supabase dashboard > **SQL Editor** > New query > paste > **Run**.
 
+### 1b. Add the globe columns (existing databases only)
+If you set up Supabase before the globe arrived, run `supabase/migration-002-globe.sql` once in the SQL Editor. It adds `lat` and `lng` to items so places can be pinned exactly. Without it the site still works: places are matched from the built-in list by name.
+
 ### 2. Create your owner login
 Supabase dashboard > **Authentication > Users > Add user > Create new user**. Use the same email as in step 1 and a strong password. Tick "Auto confirm user".
 
@@ -42,9 +45,21 @@ The anon key is safe to publish. The security rules decide what it may do.
 ### 5. Fill it
 Open your site, click **Owner sign in**, sign in, then on the cover click **Load the starter list** (only shown while the database is empty).
 
+## Three ways to see your life
+
+Use the dropdown in the top bar (top left, next to the title) to switch views. The site opens on the globe.
+
+- **3D globe** (default): drag to spin, scroll or pinch to zoom, double-click to zoom in, arrow keys to rotate. Places you have lived glow and their countries are tinted gold; dreams pulse. Click a place to see its items. The legend toggles My path (arcs between places in date order), Dreams, Spin and All places. **View Bucket** flies the camera from memory to memory.
+- **Train journey**: every chapter is a station on a line, every lived item a ticket. **View Bucket** plays a train-window story.
+- **Quest map**: chapters are regions on a winding road. Each lived item earns XP (100, plus photos, story and rating bonuses), with levels, region ranks, badges and a streak. **View Bucket** plays a quest story.
+- **Notebook**: the original chapter-by-chapter view.
+
+### How items get on the globe
+Type a place on an item (for example "Goa" or "Kyoto") and it is matched against about 215 built-in places. You can also type coordinates as `lat, lng`, or let the online lookup find it. A dream only appears on the globe if its title or place matches a known place; set a place on it to pin it. Lived items with no place show a chip on the globe to locate them.
+
 ## Using it
 
-- **Home**: progress, chapters, Surprise me, View Bucket (all chapters). Owners can add, edit, delete and rearrange chapters.
+- **Notebook**: progress, chapters, Surprise me, View Bucket (all chapters). Owners can add, edit, delete and rearrange chapters.
 - **Chapter page**: tick items, add lines to any section, rename or delete sections, filter, search. View Bucket plays this chapter.
 - **Item page**: status stamp and date, place, rating, mood, your story, extra notes (how it tasted, who was there, cost…), tags, unlimited photos and videos with captions and a cover pick. View Bucket plays this chapter starting from this item.
 - **Story mode**: tap right or press →, tap left or ←, hold or Space to pause, M for sound, Esc to close. Modes: *Lived* (ticked items), *Dreams* (random untouched ones), *Everything*.

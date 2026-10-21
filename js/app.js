@@ -1,12 +1,16 @@
 // Bootstrap: pick the database, draw the top bar, route between screens.
 import { getDb, backendNote } from './db.js';
 import { app, refreshCats, go } from './state.js';
+import { instrumentDb } from './data.js';
 import { $, h, icon, toast, formDialog, debounce } from './util.js';
 import * as home from './views/home.js';
+import * as globeView from './views/globe.js';
+import * as trainView from './views/train.js';
+import * as questView from './views/quests.js';
 import * as category from './views/category.js';
 import * as item from './views/item.js';
 
-const views = { home, cat: category, item };
+const views = { home, globe: globeView, train: trainView, quests: questView, cat: category, item };
 let cleanup = null;
 let lastKey = null;
 let lastHash = null;
@@ -18,10 +22,15 @@ function parseRoute() {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   if (parts[0] === 'c' && parts[1]) return { name: 'cat', slug: decodeURIComponent(parts[1]), key: hash };
   if (parts[0] === 'i' && parts[1]) return { name: 'item', id: decodeURIComponent(parts[1]), key: hash };
-  return { name: 'home', key: '#/' };
+  if (parts[0] === 'notebook') return { name: 'home', key: '#/notebook' };
+  if (parts[0] === 'train') return { name: 'train', key: '#/train' };
+  if (parts[0] === 'quests') return { name: 'quests', key: '#/quests' };
+  return { name: 'globe', key: '#/' };
 }
 
+let renderGen = 0;
 async function render() {
+  const my = ++renderGen;
   const route = parseRoute();
   app.route = route;
   const same = route.key === lastKey;
@@ -35,25 +44,33 @@ async function render() {
     cleanup = null;
   }
   lastKey = route.key;
-  main.innerHTML = '';
-  main.className = 'page';
+  // every render gets a fresh <main>, so a slow older render can never write into the current page
+  const target = h('main', { class: 'page', id: 'view' });
+  main.replaceWith(target);
+  main = target;
   try {
-    cleanup = (await views[route.name].render(main, route)) || null;
+    const fn = (await views[route.name].render(target, route)) || null;
+    if (my !== renderGen) {
+      fn && fn();
+      return;
+    }
+    cleanup = fn;
   } catch (err) {
+    if (my !== renderGen) return;
     console.error(err);
     main.append(
       h('div', { class: 'dark-empty' }, h('h2', {}, 'That page would not open'), h('p', {}, err.message || 'Something went wrong.'), h('a', { class: 'btn', href: '#/' }, 'Back to the cover'))
     );
   }
   window.scrollTo(0, same ? scrollY : 0);
-  const t = route.name === 'home' ? 'Before I die' : document.title;
-  if (route.name === 'home') document.title = t;
   lastHash = location.hash;
   updateTopbar();
 }
 
 function updateTopbar() {
-  const { who, signin, signout } = topbarEls;
+  const { who, signin, signout, switcher } = topbarEls;
+  const r = app.route ? app.route.name : 'globe';
+  switcher.value = { globe: 'globe', train: 'train', quests: 'quests', home: 'notebook' }[r] || '';
   const local = app.db.mode === 'local';
   const owner = app.db.auth.isOwner();
   app.owner = owner;
@@ -64,6 +81,15 @@ function updateTopbar() {
 
 function buildTopbar() {
   topbarEls.who = h('span', { class: 'who' });
+  topbarEls.switcher = h(
+    'select',
+    { class: 'view-switch', 'aria-label': 'Choose a view', onchange: (e) => e.target.value && go(e.target.value === 'globe' ? '#/' : `#/${e.target.value}`) },
+    h('option', { value: 'globe' }, '🌍 3D globe'),
+    h('option', { value: 'train' }, '🚂 Train journey'),
+    h('option', { value: 'quests' }, '⚔️ Quest map'),
+    h('option', { value: 'notebook' }, '📓 Notebook'),
+    h('option', { value: '', hidden: true }, 'Item or chapter')
+  );
   topbarEls.signin = h('button', { class: 'btn btn-small btn-quiet', type: 'button', onclick: login }, icon('lock', 16), h('span', { class: 'label-hide' }, ' Owner sign in'));
   topbarEls.signout = h(
     'button',
@@ -88,6 +114,7 @@ function buildTopbar() {
       { class: 'topbar-in' },
       h('a', { class: 'wordmark', href: '#/' }, 'Before I die'),
       topbarEls.who,
+      topbarEls.switcher,
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Search (press /)', title: 'Search (/)', onclick: openSearch }, icon('search', 22)),
       topbarEls.signin,
       topbarEls.signout
@@ -190,12 +217,14 @@ function previewBanner() {
     )
   );
   document.body.append(b);
+  setTimeout(() => b.remove(), 9000);
 }
 
 async function boot() {
   const fill = $('#splash-fill');
   try {
     app.db = await getDb();
+    instrumentDb(app.db);
     fill.style.width = '60%';
     await refreshCats();
   } catch (err) {

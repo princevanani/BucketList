@@ -1,6 +1,8 @@
 // View Bucket: full-screen story mode. Chapters, then each item as photos, videos and words.
 import { app } from '../state.js';
 import { h, icon, num, fmtDate, stars, $ } from '../util.js';
+import { getAllItems, computeStats, xpFor, titleFor, regionRank } from '../data.js';
+import { trainSvg } from './shared.js';
 
 const PHOTO_MS = 6000;
 const CHAPTER_MS = 3400;
@@ -10,6 +12,8 @@ export async function openStory(opts) {
   const db = app.db;
   const prevFocus = document.activeElement;
   const scope = opts.scope; // 'all' | 'category' | 'item'
+  const theme = opts.theme || ''; // '' | 'train' | 'quest'
+  let summary = null;
   let mode = scope === 'item' ? 'everything' : 'lived';
 
   let units = [];
@@ -44,7 +48,8 @@ export async function openStory(opts) {
   const tapR = h('div', { class: 'tap r' });
   const root = h(
     'div',
-    { class: 'story', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Bucket story' },
+    { class: 'story' + (theme ? ' theme-' + theme : ''), role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Bucket story' },
+    theme === 'train' ? sceneryEl() : null,
     stage,
     spinner,
     tapL,
@@ -55,6 +60,10 @@ export async function openStory(opts) {
   $('#story-root').append(root);
   document.body.classList.add('no-scroll');
   closeBtn.focus();
+
+  function sceneryEl() {
+    return h('div', { class: 'story-scenery', 'aria-hidden': 'true' }, h('div', { class: 'layer far' }), h('div', { class: 'layer mid' }), h('div', { class: 'layer near' }), h('div', { class: 'ground' }));
+  }
 
   // ---- tap / hold
   for (const [el, dir] of [[tapL, -1], [tapR, 1]]) {
@@ -143,6 +152,7 @@ export async function openStory(opts) {
   const unitOfItem = (item) => ({ kind: 'item', item, cat: catOf(item.category_id) });
 
   async function buildUnits() {
+    if (theme === 'quest' || theme === 'train') summary = computeStats(await getAllItems());
     if (scope === 'item') {
       const list = await db.items.listByCategory(opts.catId);
       const i = Math.max(0, list.findIndex((x) => x.id === opts.itemId));
@@ -154,6 +164,7 @@ export async function openStory(opts) {
     const byCat = new Map();
     done.forEach((it) => byCat.set(it.category_id, [...(byCat.get(it.category_id) || []), it]));
     const out = [];
+    if (theme === 'quest' && scope === 'all') out.push({ kind: 'intro' });
     for (const cat of cats) {
       let list = [];
       if (mode === 'everything' && scope === 'category') list = await db.items.listByCategory(cat.id);
@@ -177,7 +188,8 @@ export async function openStory(opts) {
     if (cache.has(idx)) return cache.get(idx);
     const p = (async () => {
       const u = units[idx];
-      if (u.kind === 'chapter') return [{ t: 'chapter', u, dur: CHAPTER_MS, timed: true }];
+      if (u.kind === 'intro') return [{ t: 'intro', dur: 5200, timed: true }];
+      if (u.kind === 'chapter') return [{ t: 'chapter', u, dur: CHAPTER_MS + (theme ? 800 : 0), timed: true }];
       let item = u.item;
       let media = [];
       try {
@@ -256,7 +268,7 @@ export async function openStory(opts) {
     curSlides = slides;
     const sl = slides[s];
     const cat = unit.cat || unit.item?.categories;
-    chapterLbl.textContent = unit.kind === 'chapter' ? unit.cat.title : cat ? `${cat.emoji ? cat.emoji + ' ' : ''}${cat.title}` : '';
+    chapterLbl.textContent = unit.kind === 'intro' ? '' : unit.kind === 'chapter' ? unit.cat.title : cat ? `${cat.emoji ? cat.emoji + ' ' : ''}${cat.title}` : '';
     const itemUnit = unit.kind === 'item' ? unit.item : null;
     openLink.textContent = itemUnit ? 'Open this item' : '';
     openLink.href = itemUnit ? `#/i/${itemUnit.id}` : '#';
@@ -275,16 +287,36 @@ export async function openStory(opts) {
   }
 
   function renderSlide(sl, my) {
+    if (sl.t === 'intro') {
+      const st = summary;
+      return h('div', { class: 'slide slide-type q-intro' }, h('div', { class: 'big-stamp' }, 'Quest log'), h('h2', {}, `Level ${st.level}: ${titleFor(st.level)}`), h('div', { class: 'xp-bar xp-big' }, h('i', { style: { width: Math.round(st.frac * 100) + '%' } })), h('p', { class: 'slide-text' }, `${num(st.xp)} XP earned · ${num(st.done)} quests done · ${num(st.places)} places · ${st.badges.filter((b) => b.got).length} badges`));
+    }
+    if (sl.t === 'chapter' && theme === 'train') {
+      const i = app.cats.findIndex((c) => c.id === sl.u.cat.id);
+      const sign = h('div', { class: 'tr-board' }, h('small', {}, `Now arriving · Platform ${i + 1}`), h('b', {}, `${sl.u.cat.emoji ? sl.u.cat.emoji + ' ' : ''}${sl.u.cat.title}`), h('span', {}, `${num(sl.u.done)} tickets punched · ${num(sl.u.total - sl.u.done)} on the waiting list`));
+      const train = h('div', { class: 'tr-train', html: trainSvg() });
+      return h('div', { class: 'slide tr-station' }, sign, train);
+    }
+    if (sl.t === 'chapter' && theme === 'quest') {
+      const rank = regionRank(sl.u.done);
+      const n = String(app.cats.findIndex((c) => c.id === sl.u.cat.id) + 1).padStart(2, '0');
+      return h('div', { class: 'slide slide-type slide-chapter' }, h('div', { class: 'num' }, n), h('h2', {}, `${sl.u.cat.emoji ? sl.u.cat.emoji + ' ' : ''}${sl.u.cat.title}`), h('div', { class: 'big-stamp' + (sl.u.done ? '' : ' dashed') }, rank.name), h('p', {}, `${num(sl.u.done)} quests done of ${num(sl.u.total)}`));
+    }
     if (sl.t === 'chapter') {
       const n = String(app.cats.findIndex((c) => c.id === sl.u.cat.id) + 1).padStart(2, '0');
       return h('div', { class: 'slide slide-type slide-chapter' }, h('div', { class: 'num' }, n), h('h2', {}, `${sl.u.cat.emoji ? sl.u.cat.emoji + ' ' : ''}${sl.u.cat.title}`), h('p', {}, sl.u.cat.tagline || ''), h('p', {}, `${num(sl.u.done)} lived of ${num(sl.u.total)}`));
     }
+    if (sl.t === 'type' && theme === 'train') {
+      const it = sl.item;
+      return h('div', { class: 'slide tr-ticket' }, h('div', { class: 'tk-big' }, h('div', { class: 'tk-head' }, h('span', {}, 'Before I Die Railways'), h('span', {}, it.done ? 'Punched' : 'Waiting list')), h('div', { class: 'tk-big-body' }, h('small', {}, `${it.section} → ${it.place || it._cat?.title || ''}`), h('h2', {}, it.title), h('div', { class: 'slide-meta' }, meta(it)), it.description ? h('p', { class: 'slide-text' }, sl.full ? it.description : trim(it.description, 280)) : null, sl.facts.length ? h('div', { class: 'slide-facts' }, sl.facts.map((f) => h('div', {}, h('b', {}, f.label + ': '), f.value))) : null)));
+    }
     if (sl.t === 'type') {
       const it = sl.item;
+      const quest = theme === 'quest';
       return h(
         'div',
         { class: 'slide slide-type' },
-        h('div', { class: 'big-stamp' + (it.done ? '' : ' dashed') }, it.done ? 'Done' : 'Still a dream'),
+        h('div', { class: 'big-stamp' + (it.done ? '' : ' dashed') }, quest ? (it.done ? `Quest complete · +${xpFor(it)} XP` : 'Side quest · +100 XP') : it.done ? 'Done' : 'Still a dream'),
         h('h2', {}, it.title),
         h('div', { class: 'slide-meta' }, meta(it)),
         it.description ? h('p', { class: 'slide-text' }, sl.full ? it.description : trim(it.description, 280)) : null,
@@ -296,10 +328,11 @@ export async function openStory(opts) {
     const copy = h(
       'div',
       { class: 'slide-copy' },
+      sl.first && theme === 'quest' && it.done ? h('div', { class: 'xp-pop' }, `Quest complete · +${xpFor(it)} XP`) : null,
       sl.first ? [h('h2', {}, it.title), h('div', { class: 'slide-meta' }, meta(it)), it.description ? h('p', { class: 'slide-text' }, trim(it.description, 200)) : null] : null,
       sl.m.caption ? h('p', { class: 'slide-cap' }, sl.m.caption) : null
     );
-    const slide = h('div', { class: 'slide' });
+    const slide = h('div', { class: 'slide' + (theme === 'train' ? ' tr-window' : '') });
     const failed = () => {
       if (my !== gen) return;
       spinner.hidden = true;
@@ -372,7 +405,7 @@ export async function openStory(opts) {
       { class: 'story-end' },
       empty
         ? [h('h2', {}, mode === 'lived' ? 'Nothing lived here yet' : 'Nothing to show'), h('p', {}, mode === 'lived' ? 'Tick something off and add a photo, and it will show up here.' : 'Add some items first.')]
-        : [h('h2', {}, scope === 'item' ? 'That is the end of this chapter' : 'That is the whole bucket, for now'), h('p', {}, `${num(units.filter((x) => x.kind === 'item').length)} ideas shown. The rest of the notebook is still waiting.`)],
+        : [h('h2', {}, theme === 'train' ? 'End of the line, for now' : theme === 'quest' ? `Level ${summary ? summary.level : ''} and climbing` : scope === 'item' ? 'That is the end of this chapter' : 'That is the whole bucket, for now'), h('p', {}, theme === 'train' ? 'Thank you for travelling with Before I Die Railways. The waiting list is long.' : theme === 'quest' ? `${num(summary ? summary.xp : 0)} XP so far. The next quest is one tick away.` : `${num(units.filter((x) => x.kind === 'item').length)} ideas shown. The rest of the notebook is still waiting.`)],
       h(
         'div',
         { class: 'row-btns' },

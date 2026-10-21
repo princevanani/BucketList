@@ -11,8 +11,7 @@ create table if not exists public.owners (
 alter table public.owners enable row level security;   -- no policies: nobody can read it from the browser
 
 -- >>> CHANGE THIS to the email you will sign in with, then run the file <<<
-insert into public.owners (email) values ('vananiprince820@gmail.com') on conflict do nothing;
-insert into public.owners (email) values ('devprince081@gmail.com') on conflict do nothing;
+insert into public.owners (email) values ('you@example.com') on conflict do nothing;
 
 create or replace function public.is_owner()
 returns boolean
@@ -48,6 +47,8 @@ create table if not exists public.items (
   done_at      date,
   description  text not null default '',
   place        text not null default '',
+  lat          double precision,
+  lng          double precision,
   rating       int check (rating between 0 and 5),
   mood         text not null default '',
   fields       jsonb not null default '[]'::jsonb,   -- [{label, value}, ...]

@@ -155,6 +155,9 @@ export async function createLocalDb() {
     },
 
     items: {
+      async listAll() {
+        return hydrateAll([...state.items].sort((a, b) => (a.category_id < b.category_id ? -1 : a.category_id > b.category_id ? 1 : a.position - b.position)));
+      },
       async listByCategory(catId) {
         const rows = state.items.filter((i) => i.category_id === catId).sort((a, b) => a.position - b.position);
         return hydrateAll(rows);
@@ -175,6 +178,8 @@ export async function createLocalDb() {
           done_at: null,
           description: '',
           place: '',
+          lat: null,
+          lng: null,
           rating: null,
           mood: '',
           fields: [],
@@ -202,6 +207,8 @@ export async function createLocalDb() {
             done_at: null,
             description: '',
             place: '',
+            lat: null,
+            lng: null,
             rating: null,
             mood: '',
             fields: [],

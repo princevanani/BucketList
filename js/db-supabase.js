@@ -2,8 +2,15 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 import { slugify } from './util.js';
 
-const ITEM_LIST_COLS = 'id,category_id,section,title,position,done,done_at,description,place,rating,mood,media_count,cover_url,cover_kind';
-const ITEM_CARD_COLS = 'id,title,category_id,section,done,done_at,place,rating,mood,description,media_count,cover_url,cover_kind,categories(slug,title,emoji,sort_order)';
+const ITEM_LIST_COLS_GEO = 'id,category_id,section,title,position,done,done_at,description,place,lat,lng,rating,mood,media_count,cover_url,cover_kind';
+const ITEM_LITE_COLS_GEO = 'id,category_id,section,title,done,done_at,place,lat,lng,rating,mood,media_count,cover_url,cover_kind,description';
+const ITEM_CARD_COLS_GEO = 'id,title,category_id,section,done,done_at,place,lat,lng,rating,mood,description,media_count,cover_url,cover_kind,categories(slug,title,emoji,sort_order)';
+
+const noGeo = (c) => c.replace(',lat,lng', '');
+let GEO = true; // switched off if the database has not had migration-002-globe.sql run yet
+const ITEM_LIST_COLS = () => (GEO ? ITEM_LIST_COLS_GEO : noGeo(ITEM_LIST_COLS_GEO));
+const ITEM_LITE_COLS = () => (GEO ? ITEM_LITE_COLS_GEO : noGeo(ITEM_LITE_COLS_GEO));
+const ITEM_CARD_COLS = () => (GEO ? ITEM_CARD_COLS_GEO : noGeo(ITEM_CARD_COLS_GEO));
 
 function ok({ data, error }) {
   if (error) throw new Error(error.message || String(error));
@@ -32,6 +39,10 @@ export async function createSupabaseDb(cfg) {
     owner = !error && data === true;
   }
   await refreshOwner();
+  {
+    const probe = await sb.from('items').select('lat').limit(1);
+    GEO = !probe.error;
+  }
   sb.auth.onAuthStateChange(async () => {
     const before = owner;
     await refreshOwner();
@@ -95,6 +106,7 @@ export async function createSupabaseDb(cfg) {
 
   return {
     mode: 'supabase',
+    hasGeo: () => GEO,
     auth: {
       isOwner: () => owner,
       user: () => email,
@@ -158,8 +170,12 @@ export async function createSupabaseDb(cfg) {
     },
 
     items: {
+      // Every item in the notebook, light columns only (used by the globe, train and quest views).
+      listAll() {
+        return fetchAll(() => sb.from('items').select(ITEM_LITE_COLS()).order('category_id').order('position'));
+      },
       listByCategory(catId) {
-        return fetchAll(() => sb.from('items').select(ITEM_LIST_COLS).eq('category_id', catId).order('position'));
+        return fetchAll(() => sb.from('items').select(ITEM_LIST_COLS()).eq('category_id', catId).order('position'));
       },
       async get(id) {
         const { data, error } = await sb.from('items').select('*, categories(slug,title,emoji,sort_order)').eq('id', id).maybeSingle();
@@ -175,6 +191,11 @@ export async function createSupabaseDb(cfg) {
         for (let i = 0; i < rows.length; i += 500) ok(await sb.from('items').insert(rows.slice(i, i + 500)));
       },
       async update(id, patch) {
+        if (!GEO) {
+          patch = { ...patch };
+          delete patch.lat;
+          delete patch.lng;
+        }
         return ok(await sb.from('items').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select().single());
       },
       async remove(id) {
@@ -191,18 +212,18 @@ export async function createSupabaseDb(cfg) {
       },
       async search(q, limit = 40) {
         const safe = q.replace(/[%_\\]/g, (c) => '\\' + c);
-        return ok(await sb.from('items').select(ITEM_CARD_COLS).ilike('title', `%${safe}%`).limit(limit));
+        return ok(await sb.from('items').select(ITEM_CARD_COLS()).ilike('title', `%${safe}%`).limit(limit));
       },
       async random(n = 1, catId = null, undone = true) {
         const rows = ok(await sb.rpc('random_items', { n, cat: catId, undone }));
         return rows;
       },
       async recentDone(n = 6) {
-        return ok(await sb.from('items').select(ITEM_CARD_COLS).eq('done', true).order('done_at', { ascending: false, nullsFirst: false }).limit(n));
+        return ok(await sb.from('items').select(ITEM_CARD_COLS()).eq('done', true).order('done_at', { ascending: false, nullsFirst: false }).limit(n));
       },
       async doneList(catId = null) {
         const rows = await fetchAll(() => {
-          let q = sb.from('items').select(ITEM_CARD_COLS).eq('done', true).order('done_at', { ascending: true, nullsFirst: true }).order('id');
+          let q = sb.from('items').select(ITEM_CARD_COLS()).eq('done', true).order('done_at', { ascending: true, nullsFirst: true }).order('id');
           if (catId) q = q.eq('category_id', catId);
           return q;
         });
