@@ -34,30 +34,18 @@ export async function render(main) {
   wrap.append(stage, stats, tools, legend, panel);
   main.append(wrap);
 
-  // Realistic globe (satellite imagery, 3D buildings) by default; the classic drawn globe is the fallback.
+  // The simple drawn globe appears instantly. The realistic one (satellite imagery, 3D buildings) loads quietly in
+  // the background and fades in over it when ready, so the page never waits for map tiles.
   const prefKey = 'bucketlist.globeMode';
   let pref = null;
   try { pref = localStorage.getItem(prefKey); } catch (e) { /* storage blocked */ }
-  let globe = null;
+  const lowEnd = !!(navigator.connection && navigator.connection.saveData) || (navigator.hardwareConcurrency || 8) <= 2 || (navigator.deviceMemory || 8) <= 2;
+  const wantReal = pref ? pref === 'real' : !lowEnd;
   let realMode = false;
-  if (pref !== 'classic') {
-    const loading = h('div', { class: 'globe-loading' }, 'Loading the planet…');
-    stage.append(loading);
-    try {
-      globe = await RealGlobe.create(stage, world, { lon: 72.6, lat: 22, zoom: 1.0 });
-      realMode = true;
-    } catch (e) {
-      console.warn('Realistic globe unavailable:', e);
-      toast('The realistic globe could not start here (needs internet and WebGL), so this is the classic one.', 'warn', 6500);
-    }
-    loading.remove();
-  }
-  if (!globe) {
-    stage.append(canvas);
-    globe = new Globe(canvas, world, { lon: 72.6, lat: 22, zoom: 1.0 });
-  }
-  (realMode ? globe.el : canvas).__globe = globe;
-  wrap.classList.toggle('is-real', realMode);
+  let alive = true;
+  stage.append(canvas);
+  let globe = new Globe(canvas, world, { lon: 72.6, lat: 22, zoom: 1.0 });
+  canvas.__globe = globe;
     const actions = h(
     'div',
     { class: 'globe-actions' },
@@ -158,7 +146,7 @@ export async function render(main) {
     toggle('Dreams', 'showDreams'),
     toggle('Spin', 'autoRotate', globe.autoRotate),
     h('button', { class: 'tog', type: 'button', onclick: placesDialog }, 'All places'),
-    h('button', { class: 'tog', type: 'button', title: realMode ? 'Switch to the simple drawn globe' : 'Switch to the satellite globe', onclick: () => { try { localStorage.setItem(prefKey, realMode ? 'classic' : 'real'); } catch (e) { /* ignore */ } app.rerender(); } }, realMode ? 'Classic view' : 'Realistic view')
+    h('button', { class: 'tog', type: 'button', title: wantReal ? 'Switch to the simple drawn globe' : 'Switch to the satellite globe', onclick: () => { try { localStorage.setItem(prefKey, wantReal ? 'classic' : 'real'); } catch (e) { /* ignore */ } app.rerender(); } }, wantReal ? 'Classic view' : 'Realistic view')
   );
 
   // a plain list of every place: handy on a phone and with a keyboard
@@ -310,12 +298,49 @@ export async function render(main) {
     });
   }
 
-  globe.on('click', (m) => (m ? pick(m.id) : closePanel()));
+  const onGlobeClick = (m) => (m ? pick(m.id) : closePanel());
+  globe.on('click', onGlobeClick);
   rebuild();
   globe.start();
+
+  // swap to the realistic globe once it is ready (never while a tour is playing)
+  async function upgrade() {
+    let real = null;
+    try {
+      real = await RealGlobe.create(stage, world, { lon: globe.lon0, lat: globe.lat0, zoom: 1.0 });
+    } catch (e) {
+      console.warn('Realistic globe unavailable:', e);
+      if (alive) toast('The realistic globe could not start (it needs internet and WebGL), so you are seeing the classic one.', 'warn', 6500);
+      return;
+    }
+    while (alive && wrap.classList.contains('touring')) await new Promise((r) => setTimeout(r, 1000));
+    if (!alive) return real.destroy();
+    const old = globe;
+    real.showArcs = old.showArcs;
+    real.showDreams = old.showDreams;
+    real.autoRotate = old.autoRotate;
+    real.on('click', onGlobeClick);
+    globe = real;
+    realMode = true;
+    wrap.classList.add('is-real');
+    real.el.__globe = real;
+    rebuild();
+    if (old.selected && markerMap.has(old.selected)) real.selected = old.selected;
+    real.refreshInsets();
+    real.start();
+    requestAnimationFrame(() => (real.el.style.opacity = '1'));
+    setTimeout(() => {
+      old.destroy();
+      canvas.remove();
+    }, 900);
+  }
+  if (wantReal) setTimeout(() => alive && upgrade(), 800);
   main.append(h('p', { class: 'sr-only' }, 'The globe is a visual map. The same places are searchable above, and every item is in the notebook.'));
 
-  return () => globe.destroy();
+  return () => {
+    alive = false;
+    globe.destroy();
+  };
 }
 
 function emptyState(owner) {

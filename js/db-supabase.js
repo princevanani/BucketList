@@ -49,12 +49,19 @@ export async function createSupabaseDb(cfg) {
     listeners.forEach((cb) => cb({ owner, email, changed: before !== owner }));
   });
 
+  // Pages of 1000 rows, six at a time in parallel (the notebook has thousands of items).
   async function fetchAll(make) {
     const out = [];
-    for (let from = 0; ; from += 1000) {
-      const rows = ok(await make().range(from, from + 999));
-      out.push(...rows);
-      if (rows.length < 1000) break;
+    const PAR = 6;
+    for (let from = 0; ; from += PAR * 1000) {
+      const pages = await Promise.all(Array.from({ length: PAR }, (_, i) => make().range(from + i * 1000, from + i * 1000 + 999)));
+      let short = false;
+      for (const pg of pages) {
+        const rows = ok(pg);
+        out.push(...rows);
+        if (rows.length < 1000) short = true;
+      }
+      if (short) break;
     }
     return out;
   }

@@ -262,3 +262,8 @@ async function boot() {
 }
 
 boot();
+
+// Keep the map library, tiles and world outline in the browser after the first visit (see sw.js).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}

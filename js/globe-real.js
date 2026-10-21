@@ -71,8 +71,8 @@ export function buildStyle({ hiRes = true } = {}) {
       sat: {
         type: 'raster',
         tiles: ['https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg'],
-        tileSize: 256,
-        maxzoom: 13,
+        tileSize: 512,
+        maxzoom: 12,
         attribution: '<a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless by EOX</a> (contains modified Copernicus Sentinel data 2020)'
       },
       ...(hiRes
@@ -97,7 +97,6 @@ export function buildStyle({ hiRes = true } = {}) {
       omt: { type: 'vector', url: 'https://tiles.openfreemap.org/planet', attribution: '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' },
       visited: { type: 'geojson', data: EMPTY },
       arcs: { type: 'geojson', data: EMPTY },
-      traveller: { type: 'geojson', data: EMPTY },
       places: { type: 'geojson', data: EMPTY },
       ring: { type: 'geojson', data: EMPTY }
     },
@@ -124,8 +123,9 @@ export function buildStyle({ hiRes = true } = {}) {
         id: 'relief',
         type: 'hillshade',
         source: 'dem',
+        minzoom: 4,
         paint: {
-          'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 0, 0.25, 6, 0.45, 12, 0.3],
+          'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 4, 0.15, 7, 0.45, 12, 0.3],
           'hillshade-shadow-color': '#050b1e',
           'hillshade-highlight-color': 'rgba(255,255,255,0.35)',
           'hillshade-accent-color': '#0a1630'
@@ -217,8 +217,6 @@ export function buildStyle({ hiRes = true } = {}) {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#ffe08a', 'line-opacity': 0.9, 'line-width': 1.6 }
       },
-      { id: 'traveller-glow', type: 'circle', source: 'traveller', paint: { 'circle-radius': 11, 'circle-color': '#fff2b8', 'circle-opacity': 0.5, 'circle-blur': 1 } },
-      { id: 'traveller', type: 'circle', source: 'traveller', paint: { 'circle-radius': 3.5, 'circle-color': '#ffffff' } },
       {
         id: 'dream-pulse',
         type: 'circle',
@@ -387,6 +385,8 @@ export class RealGlobe {
 
     this.el = document.createElement('div');
     this.el.className = 'globe-real';
+    this.el.style.opacity = '0';
+    this.el.style.transition = 'opacity 0.8s ease';
     host.append(this.el);
     this.ins = this._insets();
     this.z0 = this._z0();
@@ -401,12 +401,14 @@ export class RealGlobe {
       maxPitch: 80,
       attributionControl: false,
       renderWorldCopies: false,
-      fadeDuration: 200
+      fadeDuration: 150,
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 1.5),
+      maxTileCacheSize: 120
     });
     this.map.addControl(new ml.AttributionControl({ compact: true }), 'bottom-right');
 
     this.ready = new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('The realistic globe took too long to start')), 15000);
+      const timer = setTimeout(() => reject(new Error('The realistic globe took too long to start')), 45000);
       this.map.once('load', () => {
         clearTimeout(timer);
         this._pad();
@@ -453,7 +455,7 @@ export class RealGlobe {
   }
   set showArcs(v) {
     this._showArcs = !!v;
-    for (const id of ['arcs-glow', 'arcs-line', 'traveller-glow', 'traveller']) this._vis(id, v);
+    for (const id of ['arcs-glow', 'arcs-line']) this._vis(id, v);
   }
   get showDreams() {
     return this._showDreams;
@@ -526,7 +528,6 @@ export class RealGlobe {
       this.pathPts.push(...pts);
     }
     this._src('arcs', { type: 'FeatureCollection', features: lines });
-    if (!lines.length) this._src('traveller', EMPTY);
   }
 
   select(id, { fly = true, zoom = this.PICK_ZOOM } = {}) {
@@ -659,31 +660,24 @@ export class RealGlobe {
     }
   }
   _frame(now) {
-    if (now - this._last < 33) return;
+    if (now - this._last < 33 || document.hidden) return;
     const dt = Math.min(100, now - (this._last || now));
     this._last = now;
     const m = this.map;
     if (!m.isStyleLoaded()) return;
-    if (!this.reduced) {
+    const moving = m.isMoving();
+    // The halo animation repaints the layer, so it runs slowly and only while the map is still.
+    if (!this.reduced && !moving && now - (this._lastPulse || 0) > 140) {
+      this._lastPulse = now;
       const t = (now / 2600) % 1;
       try {
         m.setPaintProperty('dream-pulse', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 0, 4 + t * 10, 8, 7 + t * 16, 14, 10 + t * 24]);
         m.setPaintProperty('dream-pulse', 'circle-opacity', 0.5 * (1 - t));
-        m.setPaintProperty('ring', 'circle-radius', 15 + Math.sin(now / 260) * 3);
       } catch (e) {
         /* style not ready */
       }
-      // a light travelling along the path of places
-      if (this._showArcs && this.pathPts.length > 1) {
-        const f = ((now / 14000) % 1) * (this.pathPts.length - 1);
-        const i = Math.floor(f);
-        const a = this.pathPts[i];
-        const b = this.pathPts[Math.min(i + 1, this.pathPts.length - 1)];
-        const u = f - i;
-        this._src('traveller', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u] } }] });
-      }
     }
-    if (this.autoRotate && !m.isMoving() && now - this._lastInteract > 5000 && this.zoom < 2.2) {
+    if (this.autoRotate && !moving && now - this._lastInteract > 5000 && this.zoom < 2.2) {
       const c = m.getCenter();
       m.jumpTo({ center: [c.lng + dt * 0.004, c.lat] });
     }
