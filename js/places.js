@@ -263,17 +263,35 @@ export async function geocodeOnline(q) {
   }
 }
 
-// Type-ahead search over the whole world (OpenStreetMap Nominatim). Returns up to `limit` {name, label, lat, lng}.
-export async function searchOnline(q, limit = 6) {
-  try {
-    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&accept-language=en&limit=' + limit + '&q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } });
-    if (!r.ok) return [];
-    const j = await r.json();
-    return j.map((x) => {
-      const parts = (x.display_name || '').split(',').map((t) => t.trim());
-      return { name: parts[0] || q, label: parts.length > 3 ? [parts[0], parts[1], parts[parts.length - 1]].join(', ') : parts.join(', '), lat: +x.lat, lng: +x.lon };
-    });
-  } catch {
-    return [];
+// Type-ahead search over the whole world: OpenStreetMap Nominatim and Photon together (Photon is better at half-typed
+// names). Returns up to `limit` {name, label, lat, lng}, duplicates removed. Either service may fail quietly.
+async function nominatim(q, limit) {
+  const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&accept-language=en&limit=' + limit + '&q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } });
+  if (!r.ok) return [];
+  return (await r.json()).map((x) => {
+    const parts = (x.display_name || '').split(',').map((t) => t.trim());
+    return { name: parts[0] || q, label: parts.length > 3 ? [parts[0], parts[1], parts[parts.length - 1]].join(', ') : parts.join(', '), lat: +x.lat, lng: +x.lon };
+  });
+}
+async function photon(q, limit) {
+  const r = await fetch('https://photon.komoot.io/api/?lang=en&limit=' + limit + '&q=' + encodeURIComponent(q));
+  if (!r.ok) return [];
+  return (await r.json()).features.map((f) => {
+    const p = f.properties || {};
+    const name = p.name || p.street || q;
+    const label = [name, p.district || p.city || p.county, p.state, p.country].filter((v, i, a) => v && a.indexOf(v) === i).join(', ');
+    return { name, label, lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0] };
+  });
+}
+export async function searchOnline(q, limit = 10) {
+  const [a, b] = await Promise.all([nominatim(q, limit).catch(() => []), photon(q, limit).catch(() => [])]);
+  const out = [];
+  const seen = [];
+  for (const r of [...b, ...a]) {
+    if (!Number.isFinite(r.lat) || !Number.isFinite(r.lng)) continue;
+    if (seen.some((s) => s.label === r.label.toLowerCase() || (Math.abs(s.lat - r.lat) < 0.0005 && Math.abs(s.lng - r.lng) < 0.0005))) continue;
+    seen.push({ label: r.label.toLowerCase(), lat: r.lat, lng: r.lng });
+    out.push(r);
   }
+  return out.slice(0, limit);
 }

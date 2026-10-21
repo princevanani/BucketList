@@ -115,7 +115,7 @@ export async function render(main, route) {
     const sugg = h('ul', { class: 'place-sugg', role: 'listbox', hidden: true });
     const showPin = () => {
       pin.replaceChildren();
-      if (typeof it.lat === 'number' && typeof it.lng === 'number') pin.append(icon('gate', 13), ` On the globe at ${it.lat.toFixed(4)}, ${it.lng.toFixed(4)} `, h('a', { href: '#/' }, 'See it'));
+      if (typeof it.lat === 'number' && typeof it.lng === 'number') pin.append(icon('gate', 13), ` On the globe at ${it.lat.toFixed(6)}, ${it.lng.toFixed(6)} `, h('a', { href: '#/' }, 'See it'));
       else pin.textContent = place.value.trim() ? 'Not on the globe yet. Pick a suggestion, or type latitude and longitude.' : '';
     };
     const setCoords = (lat, lng) => {
@@ -138,7 +138,7 @@ export async function render(main, route) {
       sugg.hidden = true;
       place.value = r.label || r.name;
       set('place', place.value);
-      setCoords(+r.lat.toFixed(5), +r.lng.toFixed(5));
+      setCoords(+(+r.lat).toFixed(6), +(+r.lng).toFixed(6));
     };
     let sGen = 0;
     const search = debounce(async () => {
@@ -151,13 +151,13 @@ export async function render(main, route) {
       const local = searchPlaces(q, 4).map((p) => ({ name: p.name, label: p.name, lat: p.lat, lng: p.lng }));
       const coord = await resolvePlaceCoords(q);
       const draw = (list) => {
-        sugg.replaceChildren(...list.map((r) => h('li', { role: 'option' }, h('button', { type: 'button', onmousedown: (e) => e.preventDefault(), onclick: () => choose(r) }, h('b', {}, r.name), h('small', {}, r.label !== r.name ? r.label.slice(r.name.length + 2) : `${r.lat.toFixed(2)}, ${r.lng.toFixed(2)}`)))));
+        sugg.replaceChildren(...list.map((r) => h('li', { role: 'option' }, h('button', { type: 'button', onmousedown: (e) => e.preventDefault(), onclick: () => choose(r) }, h('b', {}, r.name), h('small', {}, r.label !== r.name ? r.label.slice(r.name.length + 2) : `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}`)))));
         sugg.hidden = !list.length;
       };
       const first = coord ? [coord, ...local] : local;
       draw(first);
       pin.textContent = 'Searching the world map…';
-      const online = await searchOnline(q, 6);
+      const online = await searchOnline(q, 10);
       if (my !== sGen) return;
       const seen = new Set(first.map((r) => r.name.toLowerCase()));
       draw([...first, ...online.filter((r) => !seen.has(r.label.toLowerCase()))]);

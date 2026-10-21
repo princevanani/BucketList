@@ -9,7 +9,7 @@ export async function resolvePlace(text) {
   const t = (text || '').trim();
   if (!t) return null;
   const m = t.match(COORD);
-  if (m && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180) return { name: `${(+m[1]).toFixed(2)}, ${(+m[2]).toFixed(2)}`, lat: +m[1], lng: +m[2], how: 'coordinates' };
+  if (m && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180) return { name: `${(+m[1]).toFixed(6)}, ${(+m[2]).toFixed(6)}`, lat: +m[1], lng: +m[2], how: 'coordinates' };
   const p = locate(t);
   if (p) return { name: p.name, lat: p.lat, lng: p.lng, how: 'list' };
   const g = await geocodeOnline(t);
