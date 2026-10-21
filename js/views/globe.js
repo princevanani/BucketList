@@ -139,6 +139,7 @@ export async function render(main) {
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Reset view', title: 'Reset view', onclick: () => { closePanel(); globe.reset(); } }, icon('gate', 20))
     )
   );
+  const modeBtn = h('button', { class: 'tog', type: 'button' }, 'Realistic view');
   legend.append(
     h('span', { class: 'lg lg-lived' }, 'Lived'),
     h('span', { class: 'lg lg-dream' }, 'Dream'),
@@ -146,7 +147,7 @@ export async function render(main) {
     toggle('Dreams', 'showDreams'),
     toggle('Spin', 'autoRotate', globe.autoRotate),
     h('button', { class: 'tog', type: 'button', onclick: placesDialog }, 'All places'),
-    h('button', { class: 'tog', type: 'button', title: wantReal ? 'Switch to the simple drawn globe' : 'Switch to the satellite globe', onclick: () => { try { localStorage.setItem(prefKey, wantReal ? 'classic' : 'real'); } catch (e) { /* ignore */ } app.rerender(); } }, wantReal ? 'Classic view' : 'Realistic view')
+    modeBtn
   );
 
   // a plain list of every place: handy on a phone and with a keyboard
@@ -303,42 +304,105 @@ export async function render(main) {
   rebuild();
   globe.start();
 
-  // swap to the realistic globe once it is ready (never while a tour is playing)
-  async function upgrade() {
-    let real = null;
+  // ---- the realistic globe prepares quietly in the background; the classic one stays in use meanwhile
+  let real = null;
+  let preparing = false;
+  let offer = null;
+  const setPref = (v) => { try { localStorage.setItem(prefKey, v); } catch (e) { /* ignore */ } };
+  function setModeBtn() {
+    modeBtn.disabled = preparing && !real;
+    modeBtn.textContent = realMode ? 'Classic view' : preparing && !real ? 'Preparing realistic…' : 'Realistic view';
+    modeBtn.title = realMode ? 'Switch to the simple drawn globe' : 'Switch to the satellite globe';
+  }
+  async function prepareReal(ask) {
+    if (preparing || realMode) return;
+    preparing = true;
+    setModeBtn();
     try {
       real = await RealGlobe.create(stage, world, { lon: globe.lon0, lat: globe.lat0, zoom: 1.0 });
+      await real.whenIdle();
     } catch (e) {
       console.warn('Realistic globe unavailable:', e);
-      if (alive) toast('The realistic globe could not start (it needs internet and WebGL), so you are seeing the classic one.', 'warn', 6500);
+      if (alive) toast('The realistic globe could not start (it needs internet and WebGL). The classic globe stays.', 'warn', 6500);
+      real = null;
+      preparing = false;
+      setModeBtn();
       return;
     }
-    while (alive && wrap.classList.contains('touring')) await new Promise((r) => setTimeout(r, 1000));
-    if (!alive) return real.destroy();
+    if (!alive) {
+      real.destroy();
+      real = null;
+      return;
+    }
+    setModeBtn();
+    if (ask) showOffer();
+    else swapToReal();
+  }
+  function showOffer() {
+    offer = h('div', { class: 'real-offer', role: 'dialog', 'aria-label': 'Realistic globe ready' },
+      h('b', {}, 'The realistic globe is ready to explore.'),
+      h('span', {}, 'View it now?'),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn btn-small btn-primary', type: 'button', onclick: () => { closeOffer(); setPref('real'); swapToReal(); } }, 'Yes'),
+        h('button', { class: 'btn btn-small', type: 'button', onclick: () => { closeOffer(); setPref('classic'); discardReal(); } }, 'No')));
+    wrap.append(offer);
+  }
+  function closeOffer() {
+    offer && offer.remove();
+    offer = null;
+  }
+  function discardReal() {
+    real && real.destroy();
+    real = null;
+    preparing = false;
+    setModeBtn();
+  }
+  async function swapToReal() {
+    if (!real || realMode) return;
+    while (alive && wrap.classList.contains('touring')) await new Promise((r) => setTimeout(r, 800));
+    if (!alive) return;
     const old = globe;
-    real.showArcs = old.showArcs;
-    real.showDreams = old.showDreams;
-    real.autoRotate = old.autoRotate;
-    real.on('click', onGlobeClick);
-    globe = real;
+    const r = real;
+    // continue from where the classic globe is looking
+    try { r.map.jumpTo({ center: [old.lon0, old.lat0], zoom: r.z0 + Math.log2(Math.max(0.75, Math.min(old.zoom, 150))) }); } catch (e) { /* ignore */ }
+    r.showArcs = old.showArcs;
+    r.showDreams = old.showDreams;
+    r.autoRotate = old.autoRotate;
+    r.on('click', onGlobeClick);
+    globe = r;
     realMode = true;
     wrap.classList.add('is-real');
-    real.el.__globe = real;
+    r.el.__globe = r;
     rebuild();
-    if (old.selected && markerMap.has(old.selected)) real.selected = old.selected;
-    real.refreshInsets();
-    real.start();
-    requestAnimationFrame(() => (real.el.style.opacity = '1'));
+    if (old.selected && markerMap.has(old.selected)) r.selected = old.selected;
+    r.refreshInsets();
+    r.start();
+    r.show();
+    setModeBtn();
     setTimeout(() => {
       old.destroy();
       canvas.remove();
     }, 900);
   }
-  if (wantReal) setTimeout(() => alive && upgrade(), 800);
+  modeBtn.addEventListener('click', () => {
+    if (realMode) {
+      setPref('classic');
+      app.rerender();
+    } else {
+      setPref('real');
+      closeOffer();
+      if (real) swapToReal();
+      else prepareReal(false);
+    }
+  });
+  setModeBtn();
+  if (wantReal) setTimeout(() => alive && prepareReal(!pref), 800);
   main.append(h('p', { class: 'sr-only' }, 'The globe is a visual map. The same places are searchable above, and every item is in the notebook.'));
 
   return () => {
     alive = false;
+    closeOffer();
+    real && real.destroy();
     globe.destroy();
   };
 }

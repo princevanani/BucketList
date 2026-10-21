@@ -325,6 +325,7 @@ export class RealGlobe {
     this.el = document.createElement('div');
     this.el.className = 'globe-real';
     this.el.style.opacity = '0';
+    this.el.style.pointerEvents = 'none'; // hidden while it prepares in the background
     this.el.style.transition = 'opacity 0.8s ease';
     host.append(this.el);
     this.ins = this._insets();
@@ -392,6 +393,26 @@ export class RealGlobe {
     });
     this._sizeFx();
     this.ro.observe(host);
+  }
+
+  // Resolves once the map has drawn everything for the current view (all tiles in), or after `timeout`.
+  whenIdle(timeout = 60000) {
+    return new Promise((resolve) => {
+      const t0 = performance.now();
+      let calm = 0;
+      const tick = () => {
+        const m = this.map;
+        const ok = typeof m.loaded === 'function' ? m.loaded() : true;
+        calm = ok ? calm + 1 : 0;
+        if (calm >= 3 || performance.now() - t0 > timeout) return resolve();
+        setTimeout(tick, 300);
+      };
+      tick();
+    });
+  }
+  show() {
+    this.el.style.pointerEvents = '';
+    this.el.style.opacity = '1';
   }
 
   // ---- same surface as the classic Globe ---------------------------------------

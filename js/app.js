@@ -48,14 +48,22 @@ async function render() {
   const target = h('main', { class: 'page', id: 'view' });
   main.replaceWith(target);
   main = target;
+  // something to look at while a view is fetching its data, with a way out if the network is slow
+  const loader = h('div', { class: 'page-loading', role: 'status' }, h('span', {}, 'Opening…'));
+  const slow = setTimeout(() => loader.append(h('span', { class: 'slow' }, ' Taking longer than usual. '), h('button', { class: 'btn btn-small', type: 'button', onclick: () => render() }, 'Try again')), 7000);
+  target.append(loader);
   try {
     const fn = (await views[route.name].render(target, route)) || null;
+    clearTimeout(slow);
+    loader.remove();
     if (my !== renderGen) {
       fn && fn();
       return;
     }
     cleanup = fn;
   } catch (err) {
+    clearTimeout(slow);
+    loader.remove();
     if (my !== renderGen) return;
     console.error(err);
     main.append(

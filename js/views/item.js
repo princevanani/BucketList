@@ -37,20 +37,43 @@ export async function render(main, route) {
   // ---- autosave
   const saveState = h('span', { class: 'save-state', 'aria-live': 'polite' });
   let dirty = {};
-  const persist = async () => {
-    const patch = dirty;
-    dirty = {};
-    if (!Object.keys(patch).length) return;
-    saveState.textContent = 'Saving…';
-    try {
-      await app.db.items.update(it.id, patch);
-      saveState.textContent = 'Saved';
-    } catch (e) {
-      dirty = { ...patch, ...dirty };
-      saveState.textContent = 'Not saved';
-      toast(e.message, 'error', 5000);
-    }
+  // One save at a time; edits made while a save is running go out in the next one. A save that hangs or fails
+  // is given up after a timeout and retried automatically, so the status can never stay on "Saving…".
+  let saving = null;
+  let retryT = null;
+  let fails = 0;
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Saving took too long')), ms))]);
+  const persist = () => {
+    if (saving) return saving;
+    if (!Object.keys(dirty).length) return Promise.resolve();
+    saving = (async () => {
+      const patch = dirty;
+      dirty = {};
+      saveState.textContent = 'Saving…';
+      try {
+        await withTimeout(app.db.items.update(it.id, patch), 35000);
+        fails = 0;
+        clearTimeout(retryT);
+        saveState.textContent = Object.keys(dirty).length ? '…' : 'Saved';
+      } catch (e) {
+        console.warn('save failed', e);
+        dirty = { ...patch, ...dirty };
+        fails++;
+        saveState.textContent = 'Not saved yet, retrying…';
+        if (fails === 1) toast("Couldn't save just now. Retrying automatically.", 'warn', 4000);
+        clearTimeout(retryT);
+        retryT = setTimeout(persist, Math.min(20000, 2000 * fails));
+      } finally {
+        saving = null;
+      }
+      if (!fails && Object.keys(dirty).length) queue();
+    })();
+    return saving;
   };
+  const onOnline = () => persist();
+  const onHide = () => document.hidden && persist();
+  window.addEventListener('online', onOnline);
+  document.addEventListener('visibilitychange', onHide);
   const queue = debounce(persist, 700);
   const set = (k, v) => {
     it[k] = v;
@@ -393,6 +416,8 @@ export async function render(main, route) {
   }
 
   return async () => {
+    window.removeEventListener('online', onOnline);
+    document.removeEventListener('visibilitychange', onHide);
     queue.cancel();
     await persist();
     lb?.remove();

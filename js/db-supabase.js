@@ -17,9 +17,51 @@ function ok({ data, error }) {
   return data;
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Every request gets a deadline (a stalled connection used to leave the page blank or "Saving…" for ever).
+// Reads are retried once; uploads get minutes; other writes get 30 s and are retried by the caller.
+function timedFetch(input, init = {}) {
+  const url = typeof input === 'string' ? input : input.url;
+  const method = String(init.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+  const storage = url.includes('/storage/v1/');
+  const ms = storage ? 300000 : method === 'GET' ? 15000 : 30000;
+  const attempt = async () => {
+    const ctl = new AbortController();
+    let timedOut = false;
+    const t = setTimeout(() => {
+      timedOut = true;
+      ctl.abort();
+    }, ms);
+    const outer = init.signal;
+    if (outer) outer.aborted ? ctl.abort() : outer.addEventListener('abort', () => ctl.abort(), { once: true });
+    try {
+      return await fetch(input, { ...init, signal: ctl.signal });
+    } catch (e) {
+      if (timedOut) throw new Error('The network is slow or offline. Please try again.');
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
+  };
+  if (method !== 'GET' || storage) return attempt();
+  return attempt().catch(async (e) => {
+    if (init.signal && init.signal.aborted) throw e;
+    await sleep(400);
+    return attempt();
+  });
+}
+
 export async function createSupabaseDb(cfg) {
   const sb = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+      // The default cross-tab lock can wait forever when another tab of this site is open or a refresh stalls,
+      // which froze every request. Without it each tab simply refreshes its own session.
+      lock: async (_name, _timeout, fn) => await fn()
+    },
+    global: { fetch: timedFetch }
   });
   const bucket = cfg.MEDIA_BUCKET || 'bucket-media';
   let owner = false;
