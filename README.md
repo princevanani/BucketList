@@ -55,7 +55,7 @@ Use the dropdown in the top bar (top left, next to the title) to switch views. T
 - **Notebook**: the original chapter-by-chapter view.
 
 ### Realistic globe
-The globe opens as a satellite planet: real imagery, relief, rivers, borders, roads, place names and 3D buildings when you zoom to street level. It loads MapLibre GL from a CDN and map tiles from free public servers (EOX Sentinel-2, Esri World Imagery, AWS terrain, OpenFreeMap), so it needs internet and WebGL and is meant for personal, non-commercial use. If it cannot start, the site falls back to the simple drawn globe. The **Classic view / Realistic view** button in the legend switches between them (remembered in your browser). Use **Zoom to the exact spot** in a place panel to go to street level.
+The globe opens as a satellite planet: real imagery, relief shading, rivers, borders, main roads and place names, down to city scale (zoom is capped there on purpose, to keep it fast; use Street map in a place panel for exact spots). It loads MapLibre GL from a CDN and map tiles from free public servers (EOX Sentinel-2, AWS terrain, OpenFreeMap), so it needs internet and WebGL and is meant for personal, non-commercial use. If it cannot start, the site falls back to the simple drawn globe. The **Classic view / Realistic view** button in the legend switches between them (remembered in your browser).
 
 ### How items get on the globe
 Type a place on an item (for example "Goa" or "Kyoto") and it is matched against about 215 built-in places. You can also type coordinates as `lat, lng`, or let the online lookup find it. A dream only appears on the globe if its title or place matches a known place; set a place on it to pin it. Lived items with no place show a chip on the globe to locate them.

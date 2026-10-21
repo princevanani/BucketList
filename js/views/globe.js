@@ -233,7 +233,7 @@ export async function render(main) {
       h('div', { class: 'gp-head' }, h('h2', {}, p.name), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: closePanel }, icon('close', 20))),
       h('p', { class: 'gp-sub' }, `${p.done.length} lived · ${p.dreams.length} waiting`),
       h('p', { class: 'gp-sub' },
-        h('button', { class: 'btn btn-small btn-quiet', type: 'button', onclick: () => globe.flyTo(p.lat, p.lng, { zoom: globe.EXACT_ZOOM }) }, 'Zoom to the exact spot'), ' ',
+        h('button', { class: 'btn btn-small btn-quiet', type: 'button', onclick: () => globe.flyTo(p.lat, p.lng, { zoom: globe.EXACT_ZOOM }) }, 'Zoom closer'), ' ',
         h('button', { class: 'btn btn-small btn-quiet', type: 'button', onclick: () => streetMap(p) }, 'Street map')),
       doneItems.length
         ? h(

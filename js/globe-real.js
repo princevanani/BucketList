@@ -11,6 +11,8 @@ const LIB = [`https://cdn.jsdelivr.net/npm/maplibre-gl@${VERSION}/dist/`, `https
 
 const DEG = Math.PI / 180;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+// City scale is the closest this globe goes: it keeps the map fast (no building or street-level tiles to download).
+const MAX_MAP_ZOOM = 9.5;
 const EMPTY = { type: 'FeatureCollection', features: [] };
 
 let libPromise = null;
@@ -50,7 +52,7 @@ export function loadMapLibre() {
 const FONT = ['Noto Sans Bold'];
 const FONT_REG = ['Noto Sans Regular'];
 
-export function buildStyle({ hiRes = true } = {}) {
+export function buildStyle() {
   const gold = '#ffc93c';
   const coral = '#ff6b5e';
   return {
@@ -75,30 +77,18 @@ export function buildStyle({ hiRes = true } = {}) {
         maxzoom: 12,
         attribution: '<a href="https://s2maps.eu" target="_blank" rel="noopener">Sentinel-2 cloudless by EOX</a> (contains modified Copernicus Sentinel data 2020)'
       },
-      ...(hiRes
-        ? {
-            hi: {
-              type: 'raster',
-              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-              tileSize: 256,
-              maxzoom: 19,
-              attribution: 'Imagery © Esri, Maxar, Earthstar Geographics'
-            }
-          }
-        : {}),
       dem: {
         type: 'raster-dem',
         tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
         encoding: 'terrarium',
         tileSize: 256,
-        maxzoom: 12,
+        maxzoom: 9,
         attribution: 'Terrain: Mapzen / AWS Open Data'
       },
       omt: { type: 'vector', url: 'https://tiles.openfreemap.org/planet', attribution: '<a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> © <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a> data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' },
       visited: { type: 'geojson', data: EMPTY },
       arcs: { type: 'geojson', data: EMPTY },
-      places: { type: 'geojson', data: EMPTY },
-      ring: { type: 'geojson', data: EMPTY }
+      places: { type: 'geojson', data: EMPTY }
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': '#04102a' } },
@@ -108,17 +98,6 @@ export function buildStyle({ hiRes = true } = {}) {
         source: 'sat',
         paint: { 'raster-saturation': 0.18, 'raster-contrast': 0.12, 'raster-brightness-max': 0.92, 'raster-fade-duration': 300 }
       },
-      ...(hiRes
-        ? [
-            {
-              id: 'hi',
-              type: 'raster',
-              source: 'hi',
-              minzoom: 9,
-              paint: { 'raster-opacity': ['interpolate', ['linear'], ['zoom'], 9, 0, 11.5, 1], 'raster-saturation': 0.1, 'raster-fade-duration': 300 }
-            }
-          ]
-        : []),
       {
         id: 'relief',
         type: 'hillshade',
@@ -180,30 +159,6 @@ export function buildStyle({ hiRes = true } = {}) {
         paint: { 'line-color': '#ffd98a', 'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.35, 12, 0.7], 'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.4, 12, 1.6, 17, 6] }
       },
       {
-        id: 'roads-minor',
-        type: 'line',
-        source: 'omt',
-        'source-layer': 'transportation',
-        minzoom: 12,
-        filter: ['in', ['get', 'class'], ['literal', ['secondary', 'tertiary', 'minor', 'service']]],
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#ffffff', 'line-opacity': 0.4, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 0.3, 17, 3] }
-      },
-      {
-        id: 'buildings',
-        type: 'fill-extrusion',
-        source: 'omt',
-        'source-layer': 'building',
-        minzoom: 13,
-        paint: {
-          'fill-extrusion-color': ['interpolate', ['linear'], ['coalesce', ['get', 'render_height'], 5], 0, '#8fa3c7', 40, '#d3defa', 150, '#ffffff'],
-          'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 5],
-          'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
-          'fill-extrusion-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0, 15, 0.88],
-          'fill-extrusion-vertical-gradient': true
-        }
-      },
-      {
         id: 'arcs-glow',
         type: 'line',
         source: 'arcs',
@@ -216,13 +171,6 @@ export function buildStyle({ hiRes = true } = {}) {
         source: 'arcs',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': '#ffe08a', 'line-opacity': 0.9, 'line-width': 1.6 }
-      },
-      {
-        id: 'dream-pulse',
-        type: 'circle',
-        source: 'places',
-        filter: ['==', ['get', 'lived'], 0],
-        paint: { 'circle-radius': 12, 'circle-color': coral, 'circle-opacity': 0.25, 'circle-pitch-alignment': 'map' }
       },
       {
         id: 'dream-dot',
@@ -262,12 +210,6 @@ export function buildStyle({ hiRes = true } = {}) {
           'circle-stroke-width': 1.6,
           'circle-pitch-alignment': 'map'
         }
-      },
-      {
-        id: 'ring',
-        type: 'circle',
-        source: 'ring',
-        paint: { 'circle-radius': 18, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2, 'circle-stroke-opacity': 0.9, 'circle-pitch-alignment': 'map' }
       },
       {
         id: 'place-country',
@@ -376,11 +318,8 @@ export class RealGlobe {
     this._highlight = null;
     this._lastInteract = -1e9;
     this._last = 0;
-    this._terrainOn = false;
-    this._terrainOK = true;
     this.running = false;
     this.kind = 'real';
-    this.EXACT_ZOOM = 6000; // street level: buildings and roads
     this.PICK_ZOOM = 8;
 
     this.el = document.createElement('div');
@@ -393,12 +332,12 @@ export class RealGlobe {
 
     this.map = new ml.Map({
       container: this.el,
-      style: buildStyle({ hiRes: opts.hiRes !== false }),
+      style: buildStyle(),
       center: [opts.lon ?? 72.6, opts.lat ?? 22],
       zoom: this.z0 + Math.log2(opts.zoom ?? 1),
       minZoom: Math.max(0, this.z0 - 0.5),
-      maxZoom: 19,
-      maxPitch: 80,
+      maxZoom: MAX_MAP_ZOOM,
+      maxPitch: 0,
       attributionControl: false,
       renderWorldCopies: false,
       fadeDuration: 150,
@@ -432,10 +371,26 @@ export class RealGlobe {
       if (m.isMoving()) return;
       m.getCanvas().style.cursor = this._hit(e.point) ? 'pointer' : '';
     });
-    m.on('zoom', () => this._terrainCheck());
+    try {
+      m.dragRotate.disable();
+      m.touchZoomRotate.disableRotation();
+    } catch (e) {
+      /* older builds: rotation stays available, harmless */
+    }
+    m.on('render', () => this._draw(performance.now()));
     m.on('moveend', () => this._pad());
 
-    this.ro = new ResizeObserver(() => this.refreshInsets());
+    // effects (pulsing halos, travelling light, selection ring) are drawn on a light 2D layer over the map,
+    // so animating them never makes the map re-render its tiles
+    this.fx = document.createElement('canvas');
+    this.fx.className = 'globe-fx';
+    this.el.append(this.fx);
+    this.fxCtx = this.fx.getContext('2d');
+    this.ro = new ResizeObserver(() => {
+      this._sizeFx();
+      this.refreshInsets();
+    });
+    this._sizeFx();
     this.ro.observe(host);
   }
 
@@ -446,6 +401,9 @@ export class RealGlobe {
   }
   _emit(ev, a) {
     (this.handlers[ev] || []).forEach((f) => f(a));
+  }
+  get EXACT_ZOOM() {
+    return 2 ** (MAX_MAP_ZOOM - 0.3 - this.z0);
   }
   get zoom() {
     return 2 ** (this.map.getZoom() - this.z0);
@@ -462,7 +420,7 @@ export class RealGlobe {
   }
   set showDreams(v) {
     this._showDreams = !!v;
-    for (const id of ['dream-pulse', 'dream-dot', 'dream-label']) this._vis(id, v);
+    for (const id of ['dream-dot', 'dream-label']) this._vis(id, v);
   }
   get selected() {
     return this._selected;
@@ -538,8 +496,7 @@ export class RealGlobe {
 
   flyTo(lat, lng, { zoom = this.zoom, duration = 1400 } = {}) {
     const F = Math.max(0.6, zoom);
-    const z = clamp(this.z0 + Math.log2(F), this.z0 - 0.5, 19);
-    const pitch = F >= 60 ? 55 : 0;
+    const z = clamp(this.z0 + Math.log2(F), this.z0 - 0.5, MAX_MAP_ZOOM);
     this._lastInteract = performance.now();
     return new Promise((resolve) => {
       let done = false;
@@ -551,7 +508,7 @@ export class RealGlobe {
       const dur = this.reduced ? 0 : duration;
       this.map.once('moveend', fin);
       setTimeout(fin, dur + 400);
-      this.map.flyTo({ center: [lng, lat], zoom: z, pitch, bearing: 0, duration: dur, essential: true, curve: 1.4 });
+      this.map.flyTo({ center: [lng, lat], zoom: z, pitch: 0, bearing: 0, duration: dur, essential: true, curve: 1.4 });
     });
   }
   reset() {
@@ -559,7 +516,7 @@ export class RealGlobe {
   }
   zoomBy(f) {
     this._lastInteract = performance.now();
-    this.map.easeTo({ zoom: clamp(this.map.getZoom() + Math.log2(f), this.z0 - 0.5, 19), duration: 260, essential: true });
+    this.map.easeTo({ zoom: clamp(this.map.getZoom() + Math.log2(f), this.z0 - 0.5, MAX_MAP_ZOOM), duration: 260, essential: true });
   }
 
   start() {
@@ -626,12 +583,7 @@ export class RealGlobe {
     if (s && s.setData) s.setData(data);
   }
   _ring() {
-    const feats = [];
-    for (const [id, kind] of [[this._highlight, 'hl'], [this._selected, 'sel']]) {
-      const m = id && this.markerById(id);
-      if (m) feats.push({ type: 'Feature', properties: { kind }, geometry: { type: 'Point', coordinates: [m.lng, m.lat] } });
-    }
-    this._src('ring', { type: 'FeatureCollection', features: feats });
+    this.map.triggerRepaint();
   }
   _hit(pt) {
     const r = 14;
@@ -646,40 +598,124 @@ export class RealGlobe {
     f.sort((a, b) => (b.properties.lived || 0) - (a.properties.lived || 0));
     return this.markerById(f[0].properties.id);
   }
-  // Relief in 3D only once the map has flattened out (zoomed in), where terrain is reliable.
-  _terrainCheck() {
-    if (!this._terrainOK) return;
-    const want = this.map.getZoom() >= 12;
-    if (want === this._terrainOn) return;
-    try {
-      this.map.setTerrain(want ? { source: 'dem', exaggeration: 1.25 } : null);
-      this._terrainOn = want;
-    } catch (e) {
-      this._terrainOK = false;
-      console.warn('[globe] terrain not available', e);
+  _sizeFx() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = this.host.clientWidth;
+    const h = this.host.clientHeight;
+    this.fx.width = Math.round(w * dpr);
+    this.fx.height = Math.round(h * dpr);
+    this.fx.style.width = w + 'px';
+    this.fx.style.height = h + 'px';
+    this.fxDpr = dpr;
+  }
+  // on the near side of the planet (as seen from the middle of the view)?
+  _facing(lat, lng, c) {
+    const la = lat * DEG;
+    const l0 = c.lat * DEG;
+    return Math.sin(la) * Math.sin(l0) + Math.cos(la) * Math.cos(l0) * Math.cos((lng - c.lng) * DEG);
+  }
+  _draw(now) {
+    const ctx = this.fxCtx;
+    if (!ctx) return;
+    const dpr = this.fxDpr || 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, this.fx.width, this.fx.height);
+    const m = this.map;
+    const c = m.getCenter();
+    const z = m.getZoom();
+    const base = clamp(3 + z * 0.55, 3.5, 9);
+    const still = this.reduced;
+    const ph = (period, off = 0) => (still ? 0.35 : ((now / period + off) % 1));
+    const pt = (lat, lng, minCos = 0.04) => {
+      const f = this._facing(lat, lng, c);
+      if (f < minCos) return null;
+      const p = m.project([lng, lat]);
+      return { x: p.x, y: p.y, fade: Math.min(1, f * 3.5) };
+    };
+    // dreams: soft pulses
+    if (this._showDreams) {
+      ctx.lineWidth = 1.4;
+      for (const k of this.markers) {
+        if (k.lived) continue;
+        const p = pt(k.lat, k.lng);
+        if (!p) continue;
+        const t = ph(2600, k._ph ?? (k._ph = Math.random()));
+        ctx.strokeStyle = `rgba(255,107,94,${0.6 * (1 - t) * p.fade})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, base * (1 + t * 2.8), 0, 6.2832);
+        ctx.stroke();
+      }
+    }
+    // places lived: a slow golden breath
+    ctx.lineWidth = 1.6;
+    for (const k of this.markers) {
+      if (!k.lived) continue;
+      const p = pt(k.lat, k.lng);
+      if (!p) continue;
+      const t = ph(3400, k._ph ?? (k._ph = Math.random()));
+      ctx.strokeStyle = `rgba(255,201,60,${0.55 * (1 - t) * p.fade})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, base * (1.4 + t * 2.4) + 3, 0, 6.2832);
+      ctx.stroke();
+    }
+    // a light travelling along the path of places, with a short tail
+    if (this._showArcs && this.pathPts.length > 1 && !still) {
+      const n = this.pathPts.length - 1;
+      const at = (f) => {
+        const q = ((f % 1) + 1) % 1;
+        const i = Math.min(n - 1, Math.floor(q * n));
+        const u = q * n - i;
+        const a = this.pathPts[i];
+        const b = this.pathPts[i + 1];
+        return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u];
+      };
+      const f0 = now / 16000;
+      for (let k = 12; k >= 0; k--) {
+        const [lng, lat] = at(f0 - k * 0.0035);
+        const p = pt(lat, lng);
+        if (!p) continue;
+        const a = (1 - k / 13) * p.fade;
+        ctx.fillStyle = `rgba(255,244,200,${0.75 * a})`;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, k === 0 ? 3.6 : 3 * a + 0.6, 0, 6.2832);
+        ctx.fill();
+        if (k === 0) {
+          ctx.fillStyle = 'rgba(255,240,180,0.25)';
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 11, 0, 6.2832);
+          ctx.fill();
+        }
+      }
+    }
+    // selected place and the place a tour is visiting
+    for (const [id, strong] of [[this._highlight, false], [this._selected, true]]) {
+      const k = id && this.markerById(id);
+      if (!k) continue;
+      const p = pt(k.lat, k.lng);
+      if (!p) continue;
+      const wob = still ? 0 : Math.sin(now / 260) * 2.5;
+      ctx.strokeStyle = strong ? 'rgba(255,255,255,0.95)' : 'rgba(255,224,138,0.95)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, base * 2.4 + 6 + wob, 0, 6.2832);
+      ctx.stroke();
     }
   }
   _frame(now) {
-    if (now - this._last < 33 || document.hidden) return;
-    const dt = Math.min(100, now - (this._last || now));
-    this._last = now;
+    if (document.hidden) return;
     const m = this.map;
     if (!m.isStyleLoaded()) return;
     const moving = m.isMoving();
-    // The halo animation repaints the layer, so it runs slowly and only while the map is still.
-    if (!this.reduced && !moving && now - (this._lastPulse || 0) > 140) {
+    // while the map is still, redraw ~30 times a second so the halos animate (the effects layer is cheap)
+    if (!this.reduced && !moving && now - (this._lastPulse || 0) > 33) {
       this._lastPulse = now;
-      const t = (now / 2600) % 1;
-      try {
-        m.setPaintProperty('dream-pulse', 'circle-radius', ['interpolate', ['linear'], ['zoom'], 0, 4 + t * 10, 8, 7 + t * 16, 14, 10 + t * 24]);
-        m.setPaintProperty('dream-pulse', 'circle-opacity', 0.5 * (1 - t));
-      } catch (e) {
-        /* style not ready */
-      }
+      m.triggerRepaint();
     }
     if (this.autoRotate && !moving && now - this._lastInteract > 5000 && this.zoom < 2.2) {
+      const dt = Math.min(100, now - (this._last || now));
+      this._last = now;
       const c = m.getCenter();
       m.jumpTo({ center: [c.lng + dt * 0.004, c.lat] });
-    }
+    } else this._last = now;
   }
 }
