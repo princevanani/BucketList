@@ -1497,3 +1497,54 @@
   min-width: 0;
   font-size: 0.9rem;
 }
+
+/* ---------------- realistic globe (MapLibre) ---------------- */
+.globe-real {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1.2px 1.2px at 12% 22%, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(1px 1px at 38% 71%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1.4px 1.4px at 63% 18%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1px 1px at 82% 55%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1.2px 1.2px at 91% 88%, rgba(255, 255, 255, 0.8), transparent),
+    radial-gradient(1px 1px at 27% 93%, rgba(255, 255, 255, 0.55), transparent),
+    radial-gradient(120% 90% at 50% 45%, #0a1438 0%, #050a1f 70%);
+  background-size: 310px 290px, 230px 260px, 350px 330px, 270px 240px, 300px 310px, 210px 250px, 100% 100%;
+}
+.globe-real .maplibregl-canvas {
+  outline: none;
+}
+.globe-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--chalk-dim, #b8c2dd);
+  font-family: var(--font-display, serif);
+  font-size: 1.3rem;
+  letter-spacing: 0.04em;
+  z-index: 1;
+  animation: gl-breathe 1.6s ease-in-out infinite;
+}
+@keyframes gl-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+.globe-real .maplibregl-ctrl-attrib {
+  background: rgba(5, 10, 31, 0.72);
+  color: #cdd6ee;
+  font-size: 11px;
+}
+.globe-real .maplibregl-ctrl-attrib a {
+  color: #ffd873;
+}
+.globe-real .maplibregl-ctrl-attrib-button {
+  background-color: rgba(5, 10, 31, 0.7);
+}
+@media (max-width: 860px) {
+  .globe-view.is-real .globe-legend {
+    bottom: 30px;
+  }
+}

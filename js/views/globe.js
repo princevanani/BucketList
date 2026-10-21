@@ -1,6 +1,7 @@
 // The landing page: an interactive 3D globe. Gold = places lived, pulsing coral = places still waiting.
 import { app, go as navigate } from '../state.js';
 import { h, icon, num, toast, today, fmtDate, stars, openDialog, fill } from '../util.js';
+import { RealGlobe } from '../globe-real.js';
 import { getAllItems, groupPlaces, loadWorld } from '../data.js';
 import { Globe } from '../globe-engine.js';
 import { openGlobeFlight } from './globe-story.js';
@@ -25,7 +26,7 @@ export async function render(main) {
 
   const wrap = h('div', { class: 'globe-view' });
   const canvas = h('canvas', { class: 'globe-canvas', 'aria-label': 'Interactive globe. Drag to turn, scroll to zoom. Use the places list for a keyboard-friendly view.' });
-  const stage = h('div', { class: 'globe-stage' }, canvas);
+  const stage = h('div', { class: 'globe-stage' });
   const stats = h('div', { class: 'globe-stats' });
   const panel = h('aside', { class: 'gpanel', hidden: true, 'aria-live': 'polite' });
   const legend = h('div', { class: 'globe-legend' });
@@ -33,8 +34,30 @@ export async function render(main) {
   wrap.append(stage, stats, tools, legend, panel);
   main.append(wrap);
 
-  const globe = new Globe(canvas, world, { lon: 72.6, lat: 22, zoom: 1.0 });
-  canvas.__globe = globe;
+  // Realistic globe (satellite imagery, 3D buildings) by default; the classic drawn globe is the fallback.
+  const prefKey = 'bucketlist.globeMode';
+  let pref = null;
+  try { pref = localStorage.getItem(prefKey); } catch (e) { /* storage blocked */ }
+  let globe = null;
+  let realMode = false;
+  if (pref !== 'classic') {
+    const loading = h('div', { class: 'globe-loading' }, 'Loading the planet…');
+    stage.append(loading);
+    try {
+      globe = await RealGlobe.create(stage, world, { lon: 72.6, lat: 22, zoom: 1.0 });
+      realMode = true;
+    } catch (e) {
+      console.warn('Realistic globe unavailable:', e);
+      toast('The realistic globe could not start here (needs internet and WebGL), so this is the classic one.', 'warn', 6500);
+    }
+    loading.remove();
+  }
+  if (!globe) {
+    stage.append(canvas);
+    globe = new Globe(canvas, world, { lon: 72.6, lat: 22, zoom: 1.0 });
+  }
+  (realMode ? globe.el : canvas).__globe = globe;
+  wrap.classList.toggle('is-real', realMode);
     const actions = h(
     'div',
     { class: 'globe-actions' },
@@ -134,7 +157,8 @@ export async function render(main) {
     toggle('My path', 'showArcs'),
     toggle('Dreams', 'showDreams'),
     toggle('Spin', 'autoRotate', globe.autoRotate),
-    h('button', { class: 'tog', type: 'button', onclick: placesDialog }, 'All places')
+    h('button', { class: 'tog', type: 'button', onclick: placesDialog }, 'All places'),
+    h('button', { class: 'tog', type: 'button', title: realMode ? 'Switch to the simple drawn globe' : 'Switch to the satellite globe', onclick: () => { try { localStorage.setItem(prefKey, realMode ? 'classic' : 'real'); } catch (e) { /* ignore */ } app.rerender(); } }, realMode ? 'Classic view' : 'Realistic view')
   );
 
   // a plain list of every place: handy on a phone and with a keyboard
@@ -159,9 +183,21 @@ export async function render(main) {
   }
 
 
+  // A real street map of the exact pin (OpenStreetMap embed), since the globe's coastlines are too coarse at street level.
+  function streetMap(p) {
+    const d = 0.004;
+    const src = `https://www.openstreetmap.org/export/embed.html?bbox=${(p.lng - d).toFixed(6)},${(p.lat - d).toFixed(6)},${(p.lng + d).toFixed(6)},${(p.lat + d).toFixed(6)}&layer=mapnik&marker=${p.lat},${p.lng}`;
+    openDialog({
+      title: p.name,
+      wide: true,
+      body: h('div', {}, h('iframe', { src, title: `Street map of ${p.name}`, style: { width: '100%', height: '55vh', border: '0', borderRadius: '8px' } }), h('p', { class: 'field-hint' }, `${(+p.lat).toFixed(6)}, ${(+p.lng).toFixed(6)} · `, h('a', { href: `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=18/${p.lat}/${p.lng}`, target: '_blank', rel: 'noopener' }, 'Open full map'))),
+      actions: [{ label: 'Close', kind: 'primary', value: 'ok' }]
+    });
+  }
+
   // ---- selection panel
   function pick(id) {
-    globe.select(id, { fly: true, zoom: Math.max(2.4, globe.zoom) });
+    globe.select(id, { fly: true, zoom: Math.max(globe.PICK_ZOOM, globe.zoom) });
     openPanel(id, true);
   }
   // The stage padding animates when the panel opens; keep the globe centred in the free area meanwhile.
@@ -208,6 +244,9 @@ export async function render(main) {
     fill(panel, 
       h('div', { class: 'gp-head' }, h('h2', {}, p.name), h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: closePanel }, icon('close', 20))),
       h('p', { class: 'gp-sub' }, `${p.done.length} lived · ${p.dreams.length} waiting`),
+      h('p', { class: 'gp-sub' },
+        h('button', { class: 'btn btn-small btn-quiet', type: 'button', onclick: () => globe.flyTo(p.lat, p.lng, { zoom: globe.EXACT_ZOOM }) }, 'Zoom to the exact spot'), ' ',
+        h('button', { class: 'btn btn-small btn-quiet', type: 'button', onclick: () => streetMap(p) }, 'Street map')),
       doneItems.length
         ? h(
             'section',

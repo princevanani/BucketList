@@ -2,6 +2,7 @@
 // Drag to turn, wheel or pinch to zoom, click a marker to select it.
 
 const DEG = Math.PI / 180;
+export const MAXZ = 1500; // ~ street level over a 6-decimal pin
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -28,7 +29,7 @@ const toXYZ = (lat, lng) => {
 };
 
 // Is a lon/lat point inside a ring? (ray casting in degrees, fine for country scale)
-function inRing(lng, lat, ring) {
+export function inRing(lng, lat, ring) {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const xi = ring[i][0];
@@ -50,6 +51,8 @@ export class Globe {
     this.lon0 = opts.lon ?? 72.6;
     this.lat0 = opts.lat ?? 22;
     this.zoom = opts.zoom ?? 1;
+    this.EXACT_ZOOM = 400;
+    this.PICK_ZOOM = 2.4;
     this.markers = [];
     this.arcs = [];
     this.arcPts = [];
@@ -148,7 +151,7 @@ export class Globe {
   }
   zoomBy(f) {
     this.tween = null;
-    this.zoom = clamp(this.zoom * f, 0.75, 7);
+    this.zoom = clamp(this.zoom * f, 0.75, MAXZ);
     this.lastInteract = performance.now();
     this._dirty();
   }
@@ -181,7 +184,7 @@ export class Globe {
       if (this.pointers.has(e.pointerId)) this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pinch && this.pointers.size === 2) {
         const [a, b] = [...this.pointers.values()];
-        this.zoom = clamp(this.pinch.z * (Math.hypot(a.x - b.x, a.y - b.y) / this.pinch.d), 0.75, 7);
+        this.zoom = clamp(this.pinch.z * (Math.hypot(a.x - b.x, a.y - b.y) / this.pinch.d), 0.75, MAXZ);
         this.lastInteract = performance.now();
         this._dirty();
         return;
@@ -240,7 +243,7 @@ export class Globe {
       (e) => {
         e.preventDefault();
         this.tween = null;
-        this.zoom = clamp(this.zoom * Math.exp(-e.deltaY * 0.0015), 0.75, 7);
+        this.zoom = clamp(this.zoom * Math.exp(-e.deltaY * 0.0015 * (this.zoom > 12 ? 2 : 1)), 0.75, MAXZ);
         this.lastInteract = performance.now();
         this._dirty();
       },
@@ -249,7 +252,7 @@ export class Globe {
     c.addEventListener('dblclick', (e) => {
       const rect = c.getBoundingClientRect();
       const h = this._hit(e.clientX - rect.left, e.clientY - rect.top);
-      if (h) this.flyTo(h.lat, h.lng, { zoom: Math.max(this.zoom, 3.4) });
+      if (h) this.flyTo(h.lat, h.lng, { zoom: Math.max(this.zoom, 14) });
       else this.zoomBy(1.6);
     });
     c.tabIndex = 0;
