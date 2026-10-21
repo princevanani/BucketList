@@ -184,6 +184,35 @@ export async function openStory(opts) {
     s = (s || '').trim();
     return s.length > n ? s.slice(0, n).replace(/\s+\S*$/, '') + '…' : s;
   }
+  // Story text is kept short: a few lines, then "Read more" (which pauses the story while open).
+  function plain(t) {
+    return (t || '').replace(/\*\*|__/g, '').replace(/^#+\s*/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function moreText(text, n = 220, cls = 'slide-text') {
+    text = plain(text);
+    const p = h('p', { class: cls });
+    if (text.length <= n) {
+      p.textContent = text;
+      return p;
+    }
+    const short = trim(text, n);
+    const node = document.createTextNode(short);
+    let open = false;
+    const btn = h('button', {
+      class: 'more-btn',
+      type: 'button',
+      onclick: (e) => {
+        e.stopPropagation();
+        open = !open;
+        node.nodeValue = open ? text : short;
+        btn.textContent = open ? 'Show less' : 'Read more';
+        p.classList.toggle('expanded', open);
+        setPaused(open);
+      }
+    }, 'Read more');
+    p.append(node, ' ', btn);
+    return p;
+  }
   async function slidesFor(idx) {
     if (cache.has(idx)) return cache.get(idx);
     const p = (async () => {
@@ -204,7 +233,7 @@ export async function openStory(opts) {
       const long = (item.description || '').length > 260;
       if (!media.length || facts.length || long) {
         const chars = (item.description || '').length + facts.reduce((n, f) => n + f.value.length + f.label.length, 0);
-        out.push({ t: 'type', item, facts, timed: true, dur: Math.min(15000, 5500 + chars * 38), full: !media.length || long });
+        out.push({ t: 'type', item, facts, timed: true, dur: Math.min(12000, 5500 + Math.min(chars, 300) * 30) });
       }
       return out;
     })();
@@ -308,7 +337,7 @@ export async function openStory(opts) {
     }
     if (sl.t === 'type' && theme === 'train') {
       const it = sl.item;
-      return h('div', { class: 'slide tr-ticket' }, h('div', { class: 'tk-big' }, h('div', { class: 'tk-head' }, h('span', {}, 'Before I Die Railways'), h('span', {}, it.done ? 'Punched' : 'Waiting list')), h('div', { class: 'tk-big-body' }, h('small', {}, `${it.section} → ${it.place || it._cat?.title || ''}`), h('h2', {}, it.title), h('div', { class: 'slide-meta' }, meta(it)), it.description ? h('p', { class: 'slide-text' }, sl.full ? it.description : trim(it.description, 280)) : null, sl.facts.length ? h('div', { class: 'slide-facts' }, sl.facts.map((f) => h('div', {}, h('b', {}, f.label + ': '), f.value))) : null)));
+      return h('div', { class: 'slide tr-ticket' }, h('div', { class: 'tk-big' }, h('div', { class: 'tk-head' }, h('span', {}, 'Before I Die Railways'), h('span', {}, it.done ? 'Punched' : 'Waiting list')), h('div', { class: 'tk-big-body' }, h('small', {}, `${it.section} → ${it.place || it._cat?.title || ''}`), h('h2', {}, it.title), h('div', { class: 'slide-meta' }, meta(it)), it.description ? moreText(it.description, 220) : null, sl.facts.length ? h('div', { class: 'slide-facts' }, sl.facts.map((f) => h('div', {}, h('b', {}, f.label + ': '), trim(plain(f.value), 140)))) : null)));
     }
     if (sl.t === 'type') {
       const it = sl.item;
@@ -319,8 +348,8 @@ export async function openStory(opts) {
         h('div', { class: 'big-stamp' + (it.done ? '' : ' dashed') }, quest ? (it.done ? `Quest complete · +${xpFor(it)} XP` : 'Side quest · +100 XP') : it.done ? 'Done' : 'Still a dream'),
         h('h2', {}, it.title),
         h('div', { class: 'slide-meta' }, meta(it)),
-        it.description ? h('p', { class: 'slide-text' }, sl.full ? it.description : trim(it.description, 280)) : null,
-        sl.facts.length ? h('div', { class: 'slide-facts' }, sl.facts.map((f) => h('div', {}, h('b', {}, f.label + ': '), f.value))) : null
+        it.description ? moreText(it.description, 220) : null,
+        sl.facts.length ? h('div', { class: 'slide-facts' }, sl.facts.map((f) => h('div', {}, h('b', {}, f.label + ': '), trim(plain(f.value), 140)))) : null
       );
     }
     // photo or video
@@ -329,7 +358,7 @@ export async function openStory(opts) {
       'div',
       { class: 'slide-copy' },
       sl.first && theme === 'quest' && it.done ? h('div', { class: 'xp-pop' }, `Quest complete · +${xpFor(it)} XP`) : null,
-      sl.first ? [h('h2', {}, it.title), h('div', { class: 'slide-meta' }, meta(it)), it.description ? h('p', { class: 'slide-text' }, trim(it.description, 200)) : null] : null,
+      sl.first ? [h('h2', {}, it.title), h('div', { class: 'slide-meta' }, meta(it)), it.description ? moreText(it.description, 160) : null] : null,
       sl.m.caption ? h('p', { class: 'slide-cap' }, sl.m.caption) : null
     );
     const slide = h('div', { class: 'slide' + (theme === 'train' ? ' tr-window' : '') });

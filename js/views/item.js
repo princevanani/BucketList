@@ -3,6 +3,14 @@ import { h, icon, toast, today, fmtDate, stars, debounce, confirmDialog } from '
 import { prepareFile } from '../media.js';
 import { deleteItem } from '../actions.js';
 import { resolvePlace } from '../locate-ui.js';
+import { searchPlaces, searchOnline } from '../places.js';
+
+// "lat, lng" typed into the search box becomes a suggestion.
+async function resolvePlaceCoords(q) {
+  if (!/^\s*-?\d/.test(q)) return null;
+  const r = await resolvePlace(q);
+  return r && r.how === 'coordinates' ? { name: r.name, label: r.name, lat: r.lat, lng: r.lng } : null;
+}
 import { openStory } from './story.js';
 
 const MOODS = ['😍', '🤩', '😊', '😌', '🥹', '😅', '😴', '😬', '😢', '🙏'];
@@ -100,46 +108,83 @@ export async function render(main, route) {
 
   if (owner) {
     // place + rating
-    const place = h('input', { class: 'line-in', type: 'text', value: it.place || '', placeholder: 'Where did it happen?', id: 'f-place' });
+    const place = h('input', { class: 'line-in', type: 'text', value: it.place || '', placeholder: 'Search a city, landmark or country…', id: 'f-place', autocomplete: 'off' });
     const pin = h('small', { class: 'field-hint pin-note' });
+    const latIn = h('input', { class: 'line-in', type: 'number', step: 'any', min: -90, max: 90, placeholder: 'Latitude', 'aria-label': 'Latitude', value: typeof it.lat === 'number' ? it.lat : '' });
+    const lngIn = h('input', { class: 'line-in', type: 'number', step: 'any', min: -180, max: 180, placeholder: 'Longitude', 'aria-label': 'Longitude', value: typeof it.lng === 'number' ? it.lng : '' });
+    const sugg = h('ul', { class: 'place-sugg', role: 'listbox', hidden: true });
     const showPin = () => {
       pin.replaceChildren();
-      if (typeof it.lat === 'number' && typeof it.lng === 'number') pin.append(icon('gate', 13), ` On the globe at ${it.lat.toFixed(2)}, ${it.lng.toFixed(2)} `, h('a', { href: '#/' }, 'See it'));
-      else if (place.value.trim()) pin.textContent = 'Not on the globe yet. Try a city or country, or "lat, lng".';
+      if (typeof it.lat === 'number' && typeof it.lng === 'number') pin.append(icon('gate', 13), ` On the globe at ${it.lat.toFixed(4)}, ${it.lng.toFixed(4)} `, h('a', { href: '#/' }, 'See it'));
+      else pin.textContent = place.value.trim() ? 'Not on the globe yet. Pick a suggestion, or type latitude and longitude.' : '';
     };
-    let pinGen = 0;
-    const locatePlace = debounce(async () => {
-      const my = ++pinGen;
-      const text = place.value.trim();
-      if (!text) {
-        set('lat', null);
-        set('lng', null);
-        return showPin();
-      }
-      pin.textContent = 'Looking for it on the map…';
-      const r = await resolvePlace(text);
-      if (my !== pinGen) return;
-      if (r) {
-        set('lat', r.lat);
-        set('lng', r.lng);
-      } else {
-        set('lat', null);
-        set('lng', null);
-      }
+    const setCoords = (lat, lng) => {
+      set('lat', lat);
+      set('lng', lng);
+      latIn.value = lat == null ? '' : lat;
+      lngIn.value = lng == null ? '' : lng;
       showPin();
-    }, 900);
+    };
+    const readCoords = () => {
+      const la = parseFloat(latIn.value);
+      const ln = parseFloat(lngIn.value);
+      if (Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180) setCoords(la, ln);
+      else if (latIn.value === '' && lngIn.value === '') setCoords(null, null);
+      else pin.textContent = 'Latitude is -90 to 90 and longitude is -180 to 180.';
+    };
+    latIn.addEventListener('change', readCoords);
+    lngIn.addEventListener('change', readCoords);
+    const choose = (r) => {
+      sugg.hidden = true;
+      place.value = r.label || r.name;
+      set('place', place.value);
+      setCoords(+r.lat.toFixed(5), +r.lng.toFixed(5));
+    };
+    let sGen = 0;
+    const search = debounce(async () => {
+      const my = ++sGen;
+      const q = place.value.trim();
+      if (q.length < 2) {
+        sugg.hidden = true;
+        return;
+      }
+      const local = searchPlaces(q, 4).map((p) => ({ name: p.name, label: p.name, lat: p.lat, lng: p.lng }));
+      const coord = await resolvePlaceCoords(q);
+      const draw = (list) => {
+        sugg.replaceChildren(...list.map((r) => h('li', { role: 'option' }, h('button', { type: 'button', onmousedown: (e) => e.preventDefault(), onclick: () => choose(r) }, h('b', {}, r.name), h('small', {}, r.label !== r.name ? r.label.slice(r.name.length + 2) : `${r.lat.toFixed(2)}, ${r.lng.toFixed(2)}`)))));
+        sugg.hidden = !list.length;
+      };
+      const first = coord ? [coord, ...local] : local;
+      draw(first);
+      pin.textContent = 'Searching the world map…';
+      const online = await searchOnline(q, 6);
+      if (my !== sGen) return;
+      const seen = new Set(first.map((r) => r.name.toLowerCase()));
+      draw([...first, ...online.filter((r) => !seen.has(r.label.toLowerCase()))]);
+      showPin();
+      if (!online.length && !first.length) pin.textContent = 'Nothing found. Type latitude and longitude yourself.';
+    }, 450);
     place.addEventListener('input', () => {
       set('place', place.value);
-      locatePlace();
+      search();
     });
+    place.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') sugg.hidden = true;
+      if (e.key === 'Enter' && !sugg.hidden) {
+        e.preventDefault();
+        sugg.querySelector('button')?.click();
+      }
+    });
+    place.addEventListener('blur', () => setTimeout(() => (sugg.hidden = true), 150));
     showPin();
+    const placeBox = h('div', { class: 'place-box' }, h('div', { class: 'place-in' }, place, sugg), h('div', { class: 'latlng' }, latIn, lngIn), pin);
     const ratingBox = h('div');
     const drawRating = () => {
       ratingBox.innerHTML = '';
       ratingBox.append(stars(it.rating || 0, { onPick: (n) => { set('rating', n || null); drawRating(); } }));
     };
     drawRating();
-    journal.append(h('div', { class: 'two' }, h('div', { class: 'fld' }, h('label', { for: 'f-place' }, 'Where'), place, pin), h('div', { class: 'fld' }, h('span', { class: 'lab' }, 'How good was it'), ratingBox)));
+    journal.append(h('div', { class: 'two' }, h('div', { class: 'fld' }, h('label', { for: 'f-place' }, 'Where'), placeBox), h('div', { class: 'fld' }, h('span', { class: 'lab' }, 'How good was it'), ratingBox)));
 
     // mood
     const moodBox = h('div', { class: 'moods', role: 'group', 'aria-label': 'Mood' });

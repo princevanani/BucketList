@@ -164,16 +164,27 @@ export async function render(main) {
     globe.select(id, { fly: true, zoom: Math.max(2.4, globe.zoom) });
     openPanel(id, true);
   }
+  // The stage padding animates when the panel opens; keep the globe centred in the free area meanwhile.
+  function followInsets() {
+    const t0 = performance.now();
+    const step = () => {
+      globe.refreshInsets();
+      if (performance.now() - t0 < 350) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
   function closePanel() {
     globe.selected = null;
     panel.hidden = true;
     fill(panel, );
     wrap.classList.remove('has-panel');
+    followInsets();
   }
   async function openPanel(id, focus) {
     const p = markerMap.get(id);
     if (!p) return closePanel();
     wrap.classList.add('has-panel');
+    followInsets();
     panel.hidden = false;
     globe.selected = id;
     const doneItems = [...p.done].sort((a, b) => (b.done_at || '').localeCompare(a.done_at || ''));
@@ -248,11 +259,13 @@ export async function render(main) {
     }
     closePanel();
     wrap.classList.add('touring');
+    followInsets();
     openGlobeFlight({
       globe,
       stops: s,
       onClose: () => {
         wrap.classList.remove('touring');
+        followInsets();
         globe.setArcs(pathPoints());
       }
     });

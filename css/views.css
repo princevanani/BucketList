@@ -41,9 +41,10 @@
   transition: padding 0.25s ease;
 }
 .globe-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
-  width: 100%;
-  height: 100%;
   cursor: grab;
   outline-offset: -4px;
 }
@@ -513,11 +514,14 @@
 
 @media (max-width: 860px) {
   .globe-stage {
-    padding-top: 210px;
-    padding-bottom: 130px;
+    padding-top: 150px;
+    padding-bottom: 96px;
+  }
+  .globe-actions .btn-quiet {
+    display: none;
   }
   .globe-view.has-panel .globe-stage {
-    padding-top: 60px;
+    padding-top: 56px;
     padding-bottom: 52%;
   }
   .globe-stats h1 {
@@ -1433,4 +1437,63 @@
 .pin-note a {
   color: var(--madder);
   font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .globe-view.touring .globe-stage {
+    padding-top: 56px;
+    padding-bottom: 54%;
+  }
+}
+
+/* place search + lat/lng */
+.place-in {
+  position: relative;
+}
+.place-sugg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  margin: 2px 0 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 280px;
+  overflow-y: auto;
+  background: #fff;
+  color: var(--ink, #14204a);
+  border: 1px solid rgba(20, 32, 74, 0.25);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.25);
+}
+.place-sugg button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 0;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.place-sugg button:hover,
+.place-sugg button:focus-visible {
+  background: rgba(232, 174, 47, 0.2);
+}
+.place-sugg small {
+  display: block;
+  opacity: 0.65;
+}
+.latlng {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+.latlng .line-in {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
 }

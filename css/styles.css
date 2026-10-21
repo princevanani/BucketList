@@ -1842,3 +1842,22 @@ video {
 .slide-type .big-stamp {
   justify-self: start;
 }
+
+/* story: short text with Read more */
+.slide-text.expanded {
+  max-height: 55vh;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+.more-btn {
+  position: relative;
+  z-index: 8;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--turmeric);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}

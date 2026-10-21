@@ -262,3 +262,18 @@ export async function geocodeOnline(q) {
     return null;
   }
 }
+
+// Type-ahead search over the whole world (OpenStreetMap Nominatim). Returns up to `limit` {name, label, lat, lng}.
+export async function searchOnline(q, limit = 6) {
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&accept-language=en&limit=' + limit + '&q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } });
+    if (!r.ok) return [];
+    const j = await r.json();
+    return j.map((x) => {
+      const parts = (x.display_name || '').split(',').map((t) => t.trim());
+      return { name: parts[0] || q, label: parts.length > 3 ? [parts[0], parts[1], parts[parts.length - 1]].join(', ') : parts.join(', '), lat: +x.lat, lng: +x.lon };
+    });
+  } catch {
+    return [];
+  }
+}

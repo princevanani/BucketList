@@ -288,10 +288,31 @@ export class Globe {
     this.canvas.style.width = w + 'px';
     this.canvas.style.height = h + 'px';
     this.stars = null;
+    this.ins = this._insets();
     this._dirty();
   }
+  // The globe sits in the free area left by the parent's padding (overlays), while the canvas fills the whole stage.
+  _insets() {
+    const p = this.canvas.parentElement;
+    if (!p) return { t: 0, r: 0, b: 0, l: 0 };
+    const cs = getComputedStyle(p);
+    return { t: parseFloat(cs.paddingTop) || 0, r: parseFloat(cs.paddingRight) || 0, b: parseFloat(cs.paddingBottom) || 0, l: parseFloat(cs.paddingLeft) || 0 };
+  }
+  refreshInsets() {
+    this.ins = this._insets();
+    this._dirty();
+  }
+  _cx() {
+    const i = this.ins || { l: 0, r: 0 };
+    return i.l + (this.W - i.l - i.r) / 2;
+  }
+  _cy() {
+    const i = this.ins || { t: 0, b: 0 };
+    return i.t + (this.H - i.t - i.b) / 2;
+  }
   _R() {
-    return Math.min(this.W, this.H) * 0.42 * this.zoom;
+    const i = this.ins || { t: 0, r: 0, b: 0, l: 0 };
+    return Math.min(this.W - i.l - i.r, this.H - i.t - i.b) * 0.42 * this.zoom;
   }
 
   // ---- projection ---------------------------------------------------------
@@ -312,7 +333,7 @@ export class Globe {
     const [x, y, z] = this._view(...toXYZ(lat, lng));
     if (z <= 0.02) return null;
     const R = this._R();
-    return { x: this.W / 2 + R * x, y: this.H / 2 - R * y, z };
+    return { x: this._cx() + R * x, y: this._cy() - R * y, z };
   }
   _hit(px, py) {
     this._basis();
@@ -323,8 +344,8 @@ export class Globe {
       if (m.kind === 'dream' && !this.showDreams) continue;
       const [x, y, z] = this._view(...m.xyz);
       if (z <= 0.05) continue;
-      const sx = this.W / 2 + R * x;
-      const sy = this.H / 2 - R * y;
+      const sx = this._cx() + R * x;
+      const sy = this._cy() - R * y;
       const r = this._radius(m) + 8;
       const d = Math.hypot(px - sx, py - sy);
       if (d < r && d < bd) {
@@ -471,8 +492,8 @@ export class Globe {
     const dpr = this.dpr;
     const W = this.W;
     const H = this.H;
-    const cx = W / 2;
-    const cy = H / 2;
+    const cx = this._cx();
+    const cy = this._cy();
     const R = this._R();
     this._basis();
     const time = Math.max(0, now - this.t0) / 1000;
