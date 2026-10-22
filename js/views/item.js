@@ -60,6 +60,7 @@ export async function render(main, route) {
         dirty = { ...patch, ...dirty };
         fails++;
         saveState.textContent = 'Not saved yet, retrying…';
+        if (fails === 2 && app.db.reconnect) app.db.reconnect();
         if (fails === 1) toast("Couldn't save just now. Retrying automatically.", 'warn', 4000);
         clearTimeout(retryT);
         retryT = setTimeout(persist, Math.min(20000, 2000 * fails));

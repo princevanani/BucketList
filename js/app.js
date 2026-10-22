@@ -51,10 +51,17 @@ async function render() {
   // something to look at while a view is fetching its data, with a way out if the network is slow
   const loader = h('div', { class: 'page-loading', role: 'status' }, h('span', {}, 'Opening…'));
   const slow = setTimeout(() => loader.append(h('span', { class: 'slow' }, ' Taking longer than usual. '), h('button', { class: 'btn btn-small', type: 'button', onclick: () => render() }, 'Try again')), 7000);
+  const auto = setTimeout(async () => {
+    // still nothing after 12 s: rebuild the connection and try once more, no click needed
+    if (my !== renderGen) return;
+    try { await (app.db.reconnect && app.db.reconnect()); } catch (e) { /* ignore */ }
+    if (my === renderGen) render();
+  }, 12000);
   target.append(loader);
   try {
     const fn = (await views[route.name].render(target, route)) || null;
     clearTimeout(slow);
+    clearTimeout(auto);
     loader.remove();
     if (my !== renderGen) {
       fn && fn();
@@ -63,6 +70,7 @@ async function render() {
     cleanup = fn;
   } catch (err) {
     clearTimeout(slow);
+    clearTimeout(auto);
     loader.remove();
     if (my !== renderGen) return;
     console.error(err);
@@ -274,4 +282,19 @@ boot();
 // Keep the map library, tiles and world outline in the browser after the first visit (see sw.js).
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+
+// After the tab has been hidden or offline for a while the connection is often dead; renew it on return.
+{
+  let hiddenAt = 0;
+  const wake = async () => {
+    if (!app.db || !app.db.reconnect) return;
+    await app.db.reconnect();
+    if (document.querySelector('.page-loading')) app.rerender();
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hiddenAt = Date.now();
+    else if (hiddenAt && Date.now() - hiddenAt > 45000) wake();
+  });
+  window.addEventListener('online', wake);
 }

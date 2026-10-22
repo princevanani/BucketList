@@ -1,5 +1,5 @@
 // Published-mode database: Supabase (Postgres + Auth + Storage). Same interface as db-local.js.
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/+esm';
 import { slugify } from './util.js';
 
 const ITEM_LIST_COLS_GEO = 'id,category_id,section,title,position,done,done_at,description,place,lat,lng,rating,mood,media_count,cover_url,cover_kind';
@@ -18,13 +18,23 @@ function ok({ data, error }) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Counts recent network failures; two in a row means the connection has probably gone stale, so the clients are rebuilt.
+let onTrouble = null;
+let troubles = 0;
+const noteOk = () => (troubles = 0);
+const noteBad = () => {
+  if (++troubles >= 2) {
+    troubles = 0;
+    onTrouble && onTrouble();
+  }
+};
 // Every request gets a deadline (a stalled connection used to leave the page blank or "Saving…" for ever).
 // Reads are retried once; uploads get minutes; other writes get 30 s and are retried by the caller.
 function timedFetch(input, init = {}) {
   const url = typeof input === 'string' ? input : input.url;
   const method = String(init.method || (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
   const storage = url.includes('/storage/v1/');
-  const ms = storage ? 300000 : method === 'GET' ? 15000 : 30000;
+  const ms = storage ? 300000 : method === 'GET' ? 12000 : 25000;
   const attempt = async () => {
     const ctl = new AbortController();
     let timedOut = false;
@@ -35,8 +45,11 @@ function timedFetch(input, init = {}) {
     const outer = init.signal;
     if (outer) outer.aborted ? ctl.abort() : outer.addEventListener('abort', () => ctl.abort(), { once: true });
     try {
-      return await fetch(input, { ...init, signal: ctl.signal });
+      const res = await fetch(input, { ...init, signal: ctl.signal });
+      noteOk();
+      return res;
     } catch (e) {
+      if (!(init.signal && init.signal.aborted && !timedOut)) noteBad();
       if (timedOut) throw new Error('The network is slow or offline. Please try again.');
       throw e;
     } finally {
@@ -52,26 +65,59 @@ function timedFetch(input, init = {}) {
 }
 
 export async function createSupabaseDb(cfg) {
-  const sb = createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: false,
-      // The default cross-tab lock can wait forever when another tab of this site is open or a refresh stalls,
-      // which froze every request. Without it each tab simply refreshes its own session.
-      lock: async (_name, _timeout, fn) => await fn()
-    },
-    global: { fetch: timedFetch }
-  });
+  // Two clients. `authClient` only handles signing in and refreshing the session. `sb` does all the data work and is
+  // handed the access token directly, so a stalled session refresh can never hold up a save or a page load
+  // (that was what left "Saving…" spinning and chapters blank).
+  const mkAuth = () =>
+    createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        // the default cross-tab lock can wait forever when another tab of this site is open
+        lock: async (_name, _timeout, fn) => await fn()
+      },
+      global: { fetch: timedFetch }
+    });
+  let authClient = mkAuth();
+  let token = null;
+  const jwtExp = (t) => {
+    try {
+      return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp * 1000;
+    } catch (e) {
+      return 0;
+    }
+  };
+  const bounded = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('Sign-in check timed out')), ms))]);
+  async function currentSession() {
+    try {
+      const {
+        data: { session }
+      } = await bounded(authClient.auth.getSession(), 10000);
+      token = session ? session.access_token : null;
+      return session;
+    } catch (e) {
+      console.warn('session check failed', e);
+      return null;
+    }
+  }
+  const mkData = () =>
+    createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, {
+      accessToken: async () => {
+        // renew shortly before it expires; if that stalls, carry on with the token we have
+        if (token && jwtExp(token) - Date.now() < 30000) await currentSession();
+        return token;
+      },
+      global: { fetch: timedFetch }
+    });
+  let sb = mkData();
   const bucket = cfg.MEDIA_BUCKET || 'bucket-media';
   let owner = false;
   let email = null;
   const listeners = new Set();
 
   async function refreshOwner() {
-    const {
-      data: { session }
-    } = await sb.auth.getSession();
+    const session = await currentSession();
     email = session?.user?.email || null;
     if (!session) {
       owner = false;
@@ -85,11 +131,39 @@ export async function createSupabaseDb(cfg) {
     const probe = await sb.from('items').select('lat').limit(1);
     GEO = !probe.error;
   }
-  sb.auth.onAuthStateChange(async () => {
-    const before = owner;
-    await refreshOwner();
-    listeners.forEach((cb) => cb({ owner, email, changed: before !== owner }));
-  });
+  function wireAuthEvents() {
+    authClient.auth.onAuthStateChange((_event, session) => {
+      token = session ? session.access_token : null;
+      // run outside the callback: calling auth methods inside it can deadlock
+      setTimeout(async () => {
+        const before = owner;
+        await refreshOwner();
+        listeners.forEach((cb) => cb({ owner, email, changed: before !== owner }));
+      }, 0);
+    });
+  }
+  wireAuthEvents();
+
+  // Rebuild both connections from scratch. A connection that went stale (laptop asleep, network change, a long idle
+  // tab) can leave requests hanging; this clears any stuck state without reloading the page.
+  let reconnecting = null;
+  function reconnect() {
+    if (reconnecting) return reconnecting;
+    reconnecting = (async () => {
+      try {
+        try { authClient.auth.stopAutoRefresh(); } catch (e) { /* ignore */ }
+        authClient = mkAuth();
+        wireAuthEvents();
+        sb = mkData();
+        await currentSession();
+        console.info('[db] reconnected');
+      } finally {
+        setTimeout(() => (reconnecting = null), 5000);
+      }
+    })();
+    return reconnecting;
+  }
+  onTrouble = () => reconnect();
 
   // Pages of 1000 rows, six at a time in parallel (the notebook has thousands of items).
   async function fetchAll(make) {
@@ -136,9 +210,7 @@ export async function createSupabaseDb(cfg) {
 
   function uploadWithProgress(path, blob, type, onProgress) {
     return new Promise(async (resolve, reject) => {
-      const {
-        data: { session }
-      } = await sb.auth.getSession();
+      const session = await currentSession();
       const xhr = new XMLHttpRequest();
       xhr.open('POST', `${cfg.SUPABASE_URL}/storage/v1/object/${bucket}/${path}`);
       xhr.setRequestHeader('Authorization', `Bearer ${session?.access_token || cfg.SUPABASE_ANON_KEY}`);
@@ -155,18 +227,19 @@ export async function createSupabaseDb(cfg) {
 
   return {
     mode: 'supabase',
+    reconnect,
     hasGeo: () => GEO,
     auth: {
       isOwner: () => owner,
       user: () => email,
       async signIn(e, p) {
-        const { error } = await sb.auth.signInWithPassword({ email: e, password: p });
+        const { error } = await authClient.auth.signInWithPassword({ email: e, password: p });
         if (error) throw new Error(error.message);
         await refreshOwner();
         if (!owner) throw new Error('You are signed in, but this email is not in the owners table (see schema.sql).');
       },
       async signOut() {
-        await sb.auth.signOut();
+        await authClient.auth.signOut();
         await refreshOwner();
       },
       onChange: (cb) => listeners.add(cb)
