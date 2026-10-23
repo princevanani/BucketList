@@ -376,6 +376,7 @@ export async function render(main, route) {
   }
   drawMedia();
 
+  main.classList.add('page-wide');
   main.append(h('div', { class: 'item-grid' }, journal, table));
   fit();
   requestAnimationFrame(fit);
